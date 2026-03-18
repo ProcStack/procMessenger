@@ -53,9 +53,6 @@ function handleConnect() {
         return;
     }
 
-    localStorage.setItem("serverIp", ip);
-    localStorage.setItem("serverPort", port);
-
     wsManager = new WebSocketManager(onMessage, setStatus, onClientListUpdate);
     wsManager.connect(ip, port);
 }
@@ -73,6 +70,14 @@ function setStatus(state, text) {
     const el = document.getElementById("connectionStatus");
     el.textContent = text;
     el.className = "status " + state;
+
+    // Persist server address only after a successful connection
+    if (state === "connected") {
+        const ip = document.getElementById("serverIp").value.trim();
+        const port = document.getElementById("serverPort").value.trim();
+        if (ip) localStorage.setItem("serverIp", ip);
+        if (port) localStorage.setItem("serverPort", port);
+    }
 }
 
 // --- Client List ---

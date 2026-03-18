@@ -60,6 +60,14 @@ LLAMA_MODEL_PATHS = [
 # Recognized local model file extensions
 LOCAL_MODEL_EXTENSIONS = (".gguf", ".bin", ".safetensors")
 
+# --- Local Inference (llama-cpp-python) ---
+# Number of layers to offload to GPU (-1 = all, 0 = CPU only)
+LLAMA_GPU_LAYERS = int(os.getenv("LLAMA_GPU_LAYERS", "-1"))  # Default to all layers on GPU if available
+# LLAMA_GPU_LAYERS = int(os.getenv("LLAMA_GPU_LAYERS", "0")) # CPU
+
+# Context window size in tokens
+LLAMA_CONTEXT_SIZE = int(os.getenv("LLAMA_CONTEXT_SIZE", "4096"))
+
 # --- Attachment Limits ---
 # WebSocket frames are typically limited by the library.
 # websockets lib default max is 1MB (1_048_576 bytes).

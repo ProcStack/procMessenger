@@ -8,11 +8,25 @@ All providers use an OpenAI-compatible chat completions API where possible.
 import json
 import logging
 import os
+import asyncio
 import aiohttp
 
 import config
 
 logger = logging.getLogger("procMessenger.llm.providers")
+
+# --- In-process model cache ---
+# Holds the currently loaded llama-cpp-python Llama instance and its file path.
+_loaded_model = None       # llama_cpp.Llama instance
+_loaded_model_path = None  # str — file path of the loaded model
+
+try:
+    from llama_cpp import Llama as _LlamaCpp
+    LLAMA_CPP_AVAILABLE = True
+except ImportError:
+    _LlamaCpp = None
+    LLAMA_CPP_AVAILABLE = False
+    logger.info("llama-cpp-python not installed — local in-process inference unavailable.")
 
 
 def get_system_prompt():
@@ -51,6 +65,9 @@ async def fetch_all_models():
         try:
             if key == "claude":
                 results[key] = await _fetch_anthropic_models(prov)
+            elif key == "llama":
+                # Llama server may not be running — that's fine, local files suffice
+                results[key] = await _fetch_openai_compatible_models(prov, quiet=True)
             else:
                 results[key] = await _fetch_openai_compatible_models(prov)
         except Exception as e:
@@ -72,8 +89,9 @@ async def fetch_all_models():
     return results
 
 
-async def _fetch_openai_compatible_models(prov):
-    """Fetch models from an OpenAI-compatible /v1/models endpoint."""
+async def _fetch_openai_compatible_models(prov, quiet=False):
+    """Fetch models from an OpenAI-compatible /v1/models endpoint.
+    If quiet=True, connection errors return an empty list without warning."""
     api_base = prov["api_base"].rstrip("/")
     url = f"{api_base}/v1/models"
 
@@ -81,12 +99,19 @@ async def _fetch_openai_compatible_models(prov):
     if prov["api_key"]:
         headers["Authorization"] = f"Bearer {prov['api_key']}"
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-            if resp.status != 200:
-                logger.warning(f"Models endpoint returned HTTP {resp.status} for {prov['label']}")
-                return [{"id": prov["model"], "name": prov["model"]}]
-            data = await resp.json()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    if not quiet:
+                        logger.warning(f"Models endpoint returned HTTP {resp.status} for {prov['label']}")
+                    return [{"id": prov["model"], "name": prov["model"]}]
+                data = await resp.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
+        if quiet:
+            logger.info(f"No API server reachable for {prov['label']} — using local models only.")
+            return []
+        raise
 
     models = []
     for m in data.get("data", []):
@@ -171,9 +196,15 @@ async def chat_completion(provider_key, messages, mode="ask", model=None):
 
     if provider_key == "claude":
         return await _claude_completion(prov, system_prompt, messages, effective_model)
-    else:
-        # Llama (local) and OpenAI both use OpenAI-compatible API
-        return await _openai_compatible_completion(prov, system_prompt, messages, effective_model)
+
+    # For llama: check if the model resolves to a local file for in-process inference
+    if provider_key == "llama":
+        local_path = _resolve_local_model_path(effective_model)
+        if local_path:
+            return await _local_llama_completion(local_path, system_prompt, messages)
+
+    # Fall back to OpenAI-compatible API (remote server)
+    return await _openai_compatible_completion(prov, system_prompt, messages, effective_model)
 
 
 async def _openai_compatible_completion(prov, system_prompt, messages, model):
@@ -250,9 +281,88 @@ async def _claude_completion(prov, system_prompt, messages, model):
 
 
 # ---------------------------------------------------------------------------
-# Local model file scanning & download
+# In-process local model inference (llama-cpp-python)
 # ---------------------------------------------------------------------------
 
+def _resolve_local_model_path(model_id):
+    """
+    Check if *model_id* corresponds to a local model file.
+    Returns the absolute path if found, or None.
+    """
+    # If it's already an absolute path that exists, use it directly
+    if os.path.isfile(model_id):
+        return os.path.realpath(model_id)
+
+    # Search scanned local models for a matching id (filename)
+    for m in scan_local_models():
+        if m["id"] == model_id:
+            return m["path"]
+    return None
+
+
+def _get_or_load_model(model_path):
+    """
+    Return a cached Llama instance, loading (or swapping) if necessary.
+    """
+    global _loaded_model, _loaded_model_path
+
+    if not LLAMA_CPP_AVAILABLE:
+        raise RuntimeError(
+            "llama-cpp-python is not installed. "
+            "Run: pip install llama-cpp-python"
+        )
+
+    if _loaded_model is not None and _loaded_model_path == model_path:
+        return _loaded_model
+
+    # Unload previous model
+    if _loaded_model is not None:
+        logger.info(f"Unloading previous model: {_loaded_model_path}")
+        del _loaded_model
+        _loaded_model = None
+        _loaded_model_path = None
+
+    logger.info(f"Loading local model: {model_path} "
+                f"(n_gpu_layers={config.LLAMA_GPU_LAYERS}, "
+                f"n_ctx={config.LLAMA_CONTEXT_SIZE})")
+
+    _loaded_model = _LlamaCpp(
+        model_path=model_path,
+        n_gpu_layers=config.LLAMA_GPU_LAYERS,
+        n_ctx=config.LLAMA_CONTEXT_SIZE,
+        verbose=False,
+    )
+    _loaded_model_path = model_path
+    logger.info("Model loaded successfully.")
+    return _loaded_model
+
+
+async def _local_llama_completion(model_path, system_prompt, messages):
+    """
+    Run chat completion in-process using llama-cpp-python.
+    Offloads the blocking inference call to a thread so the event loop stays free.
+    """
+    def _run():
+        llm = _get_or_load_model(model_path)
+
+        chat_messages = [{"role": "system", "content": system_prompt}]
+        for m in messages:
+            chat_messages.append({"role": m["role"], "content": m["content"]})
+
+        result = llm.create_chat_completion(
+            messages=chat_messages,
+        )
+        return result["choices"][0]["message"]["content"]
+
+    try:
+        return await asyncio.get_event_loop().run_in_executor(None, _run)
+    except Exception as e:
+        logger.error(f"Local inference error: {e}")
+        return f"Error: Local inference failed — {e}"
+
+# ---------------------------------------------------------------------------
+# Local model file scanning & download
+# ---------------------------------------------------------------------------
 def scan_local_models():
     """
     Scan the project's models/ directory and any extra paths defined in
