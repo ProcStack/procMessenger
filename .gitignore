@@ -180,3 +180,7 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 /Server_Nodejs/node_modules
+/Client_APK/.gradle
+/Client_APK/.idea
+*.psd
+/LLM_Chat/chat_history
