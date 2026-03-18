@@ -1,0 +1,14 @@
+{
+    "name": "procmessenger-server-nodejs",
+    "version": "1.0.0",
+    "description": "procMessenger Node.js WebSocket server and client",
+    "main": "server.js",
+    "scripts": {
+        "server": "node server.js",
+        "client": "node client.js"
+    },
+    "dependencies": {
+        "uuid": "^9.0.0",
+        "ws": "^8.16.0"
+    }
+}

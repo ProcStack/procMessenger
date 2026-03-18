@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>procMessenger</title>
+    <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+    <!-- Connection -->
+    <div class="section">
+        <div class="section-title">Connection</div>
+        <div class="connection-bar">
+            <input type="text" id="serverIp" placeholder="Server IP (e.g. 192.168.1.100)" />
+            <input type="number" id="serverPort" class="port-input" placeholder="Port" value="9734" />
+            <button id="btnConnect" class="btn-connect">Connect</button>
+            <button id="btnDisconnect" class="btn-disconnect">Disconnect</button>
+        </div>
+        <div id="connectionStatus" class="status disconnected">Not connected</div>
+    </div>
+
+    <!-- Connected Computers (multi-select) -->
+    <div class="section">
+        <div class="section-title">Computers — tap to select targets</div>
+        <div id="clientList">
+            <div class="empty-list">No computers connected</div>
+        </div>
+    </div>
+
+    <!-- Function Selection -->
+    <div class="section">
+        <div class="section-title">Function</div>
+        <select id="functionSelect">
+            <option value="" disabled selected>Select functionality...</option>
+        </select>
+
+        <!-- Dynamic panel — updates based on selected function -->
+        <div id="dynamicPanel"></div>
+    </div>
+
+    <!-- Message Input -->
+    <div class="section">
+        <div class="section-title">Message</div>
+        <textarea id="messageContent" rows="3" placeholder="Additional message content (optional)..."></textarea>
+        <button id="btnSend">Send Message</button>
+    </div>
+
+    <!-- Message Display — Tabbed by computer -->
+    <div class="section">
+        <div class="section-title">Responses</div>
+        <div id="messageTabs">
+            <div class="empty-list">No messages yet</div>
+        </div>
+        <div id="messageArea">
+            <div class="empty-list">Messages will appear here</div>
+        </div>
+    </div>
+
+    <!-- Chat History Modal (LLM) -->
+    <div id="chatHistoryModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Chat History</h3>
+                <button class="btn-close-modal" onclick="closeChatHistoryModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="chatHistoryList">
+                <div class="empty-list">Loading...</div>
+            </div>
+            <div class="modal-footer">
+                <input type="text" id="newChatNameInput" placeholder="New chat name..." />
+                <button class="btn-secondary" onclick="createNewChat()">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts: load order matters -->
+    <script src="js/config.js"></script>
+    <script src="js/websocket.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

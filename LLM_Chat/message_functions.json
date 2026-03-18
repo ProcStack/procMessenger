@@ -1,0 +1,19 @@
+{
+    "modes": [
+        {
+            "value": "ask",
+            "label": "Ask",
+            "description": "Simple question and answer. The LLM responds directly to your message."
+        },
+        {
+            "value": "agent",
+            "label": "Agent",
+            "description": "Agentic mode. The LLM can run scripts and tools to accomplish tasks autonomously."
+        },
+        {
+            "value": "plan",
+            "label": "Plan",
+            "description": "Planning mode. The LLM breaks down your request into steps and outlines an action plan before executing."
+        }
+    ]
+}
