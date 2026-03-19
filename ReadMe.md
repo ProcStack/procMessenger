@@ -1,5 +1,5 @@
 # procMessenger
-## Local Network Messaging — PC <> Phone
+## Local Network Messaging; PC <> Phone
 ### With local LLM Chat access available
 
 Send commands from your phone to your computers over the local network.
@@ -26,6 +26,7 @@ A standardized JSON/WebSocket protocol routes messages between an Android app an
 
 - **Server** - Either the Python or Node.js instance can be the server. The first to start claims the port; others connect as clients.
 - **Mobile App** - Android APK with a WebView UI (vanilla HTML/CSS/JS, no frameworks). Connects to the server via WebSocket.
+  - *Sorry, I'm using this project as a way to develop my spa javascript framework `procPages`, so I'm not using React or Nextjs... They added decorators to javascript, so why not make a framework?*
 - **PC Clients** - Connect to the server and handle messages (run scripts, research, story editing, etc).
 
 ---
@@ -146,9 +147,17 @@ Open `Client_APK/` in Android Studio, build the APK, and install on your phone. 
 
 **4. OPTIONAL - Install local LLM support:**
 
-Llama uses `llama-cpp-python`, if you don't already have it installed, there is a cuda version, as the default installs CPU only -
+Llama uses `llama-cpp-python`, if you don't already have it installed, there is a cuda version, as the default installs CPU only.
 
-`pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124`
+To test if you have the CUDA version built/installed correctly, or check `llama-cpp-python` is installed, you can run this -
+```
+python -c "import llama_cpp; print('GPU offload:', llama_cpp.llama_supports_gpu_offload())"
+```
+It'll say `True` for GPU usage
+
+If it says `False`, or errors to load `llama-cpp`, then run -
+
+`pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 --force-reinstall`
 
 Change `cu124` to -
  - `cu121` for CUDA 12.1
@@ -164,12 +173,6 @@ To find your CUDA version run - `nvcc --version`
 $env:CMAKE_ARGS="-DGGML_CUDA=on"
 pip install llama-cpp-python --force-reinstall --no-cache-dir
 ```
-
-To test that the CUDA version built/installed correctly, you can test with this -
-```
-python -c "import llama_cpp; print('GPU offload:', llama_cpp.llama_supports_gpu_offload())"
-```
-It'll say `True` for GPU usage
 
 ---
 
@@ -193,6 +196,6 @@ It'll say `True` for GPU usage
 
 I'm developing `procMessenger` as a way to work on my `branchShredder` projects; my branching narritive graph visualizer.
  - [Branch Shredder Repo](https://github.com/ProcStack/branchShredder)
-So the server messenging may get some features addressing aspects outside of this project.  Please see the branchShredder repo in that case.
+<br/>So the server messenging may get some features addressing aspects outside of this project.  Please see the branchShredder repo in that case.
 
 
