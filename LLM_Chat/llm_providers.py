@@ -197,11 +197,34 @@ async def chat_completion(provider_key, messages, mode="ask", model=None):
     if provider_key == "claude":
         return await _claude_completion(prov, system_prompt, messages, effective_model)
 
-    # For llama: check if the model resolves to a local file for in-process inference
+    # For llama: prefer local in-process inference, use HTTP API as middle option
     if provider_key == "llama":
+        # 1) Try resolving the requested model to a local file
         local_path = _resolve_local_model_path(effective_model)
         if local_path:
             return await _local_llama_completion(local_path, system_prompt, messages)
+
+        # 2) No local file matched — try the HTTP API server
+        result = await _openai_compatible_completion(prov, system_prompt, messages, effective_model)
+
+        # 3) If the HTTP call failed with a connection error, fall back to
+        #    any available local model for in-process inference
+        if result.startswith("Connection error"):
+            local_models = scan_local_models()
+            if local_models:
+                fallback = local_models[0]
+                logger.info(
+                    f"HTTP API unreachable — falling back to local model: {fallback['id']}"
+                )
+                return await _local_llama_completion(
+                    fallback["path"], system_prompt, messages
+                )
+            if LLAMA_CPP_AVAILABLE:
+                return (
+                    f"{result}\n\nNo local model files found either. "
+                    f"Place a .gguf model in {config.LOCAL_MODELS_DIR} or add paths to LLAMA_MODEL_PATHS in .env"
+                )
+        return result
 
     # Fall back to OpenAI-compatible API (remote server)
     return await _openai_compatible_completion(prov, system_prompt, messages, effective_model)
@@ -322,18 +345,21 @@ def _get_or_load_model(model_path):
         _loaded_model = None
         _loaded_model_path = None
 
+    # Determine context size: 0 tells the C library to use n_ctx_train from model metadata
+    effective_n_ctx = config.LLAMA_CONTEXT_SIZE if config.LLAMA_CONTEXT_SIZE > 0 else 0
+
     logger.info(f"Loading local model: {model_path} "
                 f"(n_gpu_layers={config.LLAMA_GPU_LAYERS}, "
-                f"n_ctx={config.LLAMA_CONTEXT_SIZE})")
+                f"n_ctx={'auto' if effective_n_ctx == 0 else effective_n_ctx})")
 
     _loaded_model = _LlamaCpp(
         model_path=model_path,
         n_gpu_layers=config.LLAMA_GPU_LAYERS,
-        n_ctx=config.LLAMA_CONTEXT_SIZE,
+        n_ctx=effective_n_ctx,
         verbose=False,
     )
     _loaded_model_path = model_path
-    logger.info("Model loaded successfully.")
+    logger.info(f"Model loaded successfully. Effective context: {_loaded_model.n_ctx()} tokens")
     return _loaded_model
 
 

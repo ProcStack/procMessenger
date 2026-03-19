@@ -97,15 +97,20 @@ To run it in a CMD -
 ```
 # Python
 cd Server_Python
-.\Start.bat
+.\start_server.bat
+# or 
+.\start_client.bat
 
 # Node.js
 cd Server_Nodejs
-.\Start.bat
+.\start_server.bat
+# or 
+.\start_client.bat
 ```
 
 To set the server to boot with your computer, `startup`
-Run the `add_startup_script.bat` from your desired Server directory or `LLM_Chat`
+<br/>&nbsp;&nbsp; Run the `add_startup_script.bat` from your desired Server directory or `LLM_Chat`
+<br/>&nbsp;&nbsp; The script installed is the client script, to boot Server & Client
 
 -or-
 
@@ -137,6 +142,34 @@ npm run client
 **3. Build and install the mobile app:**
 
 Open `Client_APK/` in Android Studio, build the APK, and install on your phone. Enter your server's LAN IP address and port 9734 in the connection bar.
+
+
+**4. OPTIONAL - Install local LLM support:**
+
+Llama uses `llama-cpp-python`, if you don't already have it installed, there is a cuda version, as the default installs CPU only -
+
+`pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124`
+
+Change `cu124` to -
+ - `cu121` for CUDA 12.1
+ - `cu122` for CUDA 12.2
+ - `cu123` for CUDA 12.3
+ - `cu124` for CUDA 12.4
+
+To find your CUDA version run - `nvcc --version`
+<br/> Look for - `Build cuda_##.#...`
+
+*NOTE*: I only got CUDA working by building it myself in powershell -
+```
+$env:CMAKE_ARGS="-DGGML_CUDA=on"
+pip install llama-cpp-python --force-reinstall --no-cache-dir
+```
+
+To test that the CUDA version built/installed correctly, you can test with this -
+```
+python -c "import llama_cpp; print('GPU offload:', llama_cpp.llama_supports_gpu_offload())"
+```
+It'll say `True` for GPU usage
 
 ---
 

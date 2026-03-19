@@ -65,8 +65,8 @@ LOCAL_MODEL_EXTENSIONS = (".gguf", ".bin", ".safetensors")
 LLAMA_GPU_LAYERS = int(os.getenv("LLAMA_GPU_LAYERS", "-1"))  # Default to all layers on GPU if available
 # LLAMA_GPU_LAYERS = int(os.getenv("LLAMA_GPU_LAYERS", "0")) # CPU
 
-# Context window size in tokens
-LLAMA_CONTEXT_SIZE = int(os.getenv("LLAMA_CONTEXT_SIZE", "4096"))
+# Context window size in tokens (0 = auto-detect from model metadata)
+LLAMA_CONTEXT_SIZE = int(os.getenv("LLAMA_CONTEXT_SIZE", "0"))
 
 # --- Attachment Limits ---
 # WebSocket frames are typically limited by the library.

@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupEventListeners();
     populateFunctionDropdown();
     updateDynamicPanel();
+    updateConnectionButtons("disconnected");
 
     // Auto-connect if we have saved settings
     const savedIp = localStorage.getItem("serverIp") || CONFIG.SERVER_IP;
@@ -66,10 +67,18 @@ function handleDisconnect() {
 
 // --- Status ---
 
+function updateConnectionButtons(state) {
+    const isConnected = state === "connected";
+    const isConnecting = state === "connecting";
+    document.getElementById("btnConnect").style.display = (isConnected || isConnecting) ? "none" : "";
+    document.getElementById("btnDisconnect").style.display = isConnected ? "" : "none";
+}
+
 function setStatus(state, text) {
     const el = document.getElementById("connectionStatus");
     el.textContent = text;
     el.className = "status " + state;
+    updateConnectionButtons(state);
 
     // Persist server address only after a successful connection
     if (state === "connected") {
@@ -237,6 +246,7 @@ function renderLlmPanel(panel) {
                     <label>Model:</label>
                     <select id="llmModel" class="full-width"><option value="">Loading models...</option></select>
                 </div>
+                <button id="btnRefreshModels" class="btn-secondary" style="align-self:flex-end" title="Refresh model list">&#x21BB;</button>
             </div>
             <div class="llm-row">
                 <div class="llm-field" style="flex:1">
@@ -250,6 +260,7 @@ function renderLlmPanel(panel) {
     `;
 
     document.getElementById("btnLlmHistory").addEventListener("click", openChatHistoryModal);
+    document.getElementById("btnRefreshModels").addEventListener("click", refreshLlmModels);
     document.getElementById("llmProvider").addEventListener("change", updateModelDropdown);
 
     // Populate model dropdown for current provider
@@ -288,9 +299,31 @@ function updateModelDropdown() {
     models.forEach(m => {
         const opt = document.createElement("option");
         opt.value = m.id;
-        opt.textContent = m.name !== m.id ? `${m.name} (${m.id})` : m.id;
+        //opt.textContent = m.name !== m.id ? `${m.name} (${m.id})` : m.id;
+        //opt.textContent = m.name !== m.id ? `${m.name}` : m.id;
+        
+        let label = m.name;
+        console.log(m);
+        console.log(m.hasOwnProperty("path"))
+        if( m.hasOwnProperty("path") ){
+          label = m.id.split(".");
+          label.pop();
+          label = label.join(".");
+          label = label.replace(/[-]/g, " ");
+        }
+        opt.textContent = label;
         modelSelect.appendChild(opt);
     });
+}
+
+function refreshLlmModels() {
+    if (!wsManager || !wsManager.connected) {
+        setStatus("error", "Not connected to server.");
+        return;
+    }
+    const modelSelect = document.getElementById("llmModel");
+    if (modelSelect) modelSelect.innerHTML = '<option value="">Refreshing...</option>';
+    wsManager.send("llm_modes", "llm-chat", {});
 }
 
 // --- Sending Messages ---

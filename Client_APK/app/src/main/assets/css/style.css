@@ -1,15 +1,17 @@
 /* procMessenger Mobile — Styles */
 
 :root {
-    --bg-primary: #1a1a2e;
-    --bg-secondary: #16213e;
-    --bg-card: #0f3460;
-    --accent: #e94560;
-    --accent-light: #ff6b81;
+    --bg-primary: #202020;
+    --bg-secondary: #2a3040;
+    --bg-card: rgba(47, 49, 80, 0.62);
+    --bg-button: #2d62a1;
+    --bg-button-light: #2c7ddf;
+    --accent: #57a9d8;
+    --accent-light: #71aacc;
     --text-primary: #eee;
     --text-secondary: #aaa;
-    --text-muted: #777;
-    --border: #2a2a4a;
+    --text-muted: #9c9c9c;
+    --border: #515178;
     --success: #4caf50;
     --warning: #ff9800;
     --error: #f44336;
@@ -110,6 +112,10 @@ select {
     padding-right: 30px;
 }
 
+option:disabled {
+    color: var(--text-muted);
+}
+
 textarea {
     resize: vertical;
     font-family: inherit;
@@ -134,25 +140,23 @@ label:first-child {
 /* --- Buttons --- */
 
 button, .btn {
-    background: var(--accent);
+    background: var(--bg-button);
     color: #fff;
     border: none;
     padding: 10px 16px;
     border-radius: var(--radius);
     font-size: 14px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.15s;
 }
 
 button:active {
-    background: var(--accent-light);
+    background: var(--bg-button-light);
 }
 
 .btn-secondary {
-    background: var(--bg-card);
     margin-top: 8px;
     font-size: 12px;
-    padding: 6px 12px;
 }
 
 .btn-secondary:active {
@@ -194,7 +198,7 @@ button:active {
 
 .client-item.selected {
     border-color: var(--accent);
-    background: rgba(233, 69, 96, 0.1);
+    background: rgba(91, 181, 255, 0.1);
 }
 
 .client-item .client-name {
@@ -209,7 +213,7 @@ button:active {
 }
 
 .client-item.select-all {
-    background: var(--bg-card);
+    background: var(--bg-button);
     font-style: italic;
     justify-content: center;
 }
@@ -377,11 +381,11 @@ button:active {
     margin-bottom: 10px;
     padding: 8px 10px;
     border-radius: var(--radius);
-    max-width: 90%;
+    max-width: 80%;
 }
 
 .llm-msg.user {
-    background: rgba(233, 69, 96, 0.15);
+    background: rgba(57, 127, 255, 0.22);
     border-left: 3px solid var(--accent);
     margin-left: auto;
 }
@@ -567,7 +571,7 @@ button:active {
 .chat-history-item:active,
 .chat-history-item.active {
     border-color: var(--accent);
-    background: rgba(233, 69, 96, 0.1);
+    background: rgba(46, 104, 190, 0.38);
 }
 
 .chat-history-info {
