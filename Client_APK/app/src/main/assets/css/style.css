@@ -287,13 +287,63 @@ button:active {
     font-size: 13px;
 }
 
-/* --- Message Tabs --- */
+/* --- Floating Responses Button --- */
 
-#messageTabs {
+.responses-fab {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    border: none;
+    color: #fff;
+    font-size: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    z-index: 900;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.responses-fab:active {
+    transform: scale(0.92);
+}
+
+.responses-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 11px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+}
+
+/* --- Responses Modal --- */
+
+.responses-modal-content {
+    height: 85vh;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.responses-tabs {
     display: flex;
     gap: 4px;
     overflow-x: auto;
-    padding-bottom: 6px;
+    padding: 8px 12px 0;
+    flex-shrink: 0;
     -webkit-overflow-scrolling: touch;
 }
 
@@ -317,15 +367,13 @@ button:active {
     border-color: var(--accent);
 }
 
-/* --- Message Area --- */
-
-#messageArea {
+.responses-area {
     background: var(--bg-primary);
     border: 1px solid var(--border);
     border-radius: 0 var(--radius) var(--radius) var(--radius);
+    margin: 0 12px 12px;
     padding: 8px;
-    min-height: 150px;
-    max-height: 40vh;
+    flex: 1;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
 }
@@ -393,6 +441,21 @@ button:active {
     padding: 4px 8px !important;
     font-size: 12px !important;
     margin-top: 0 !important;
+}
+
+.topic-select-footer {
+    flex-direction: column;
+    gap: 8px;
+}
+
+.topic-select-actions {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+}
+
+.topic-select-actions button {
+    flex: 1;
 }
 
 #llmChatDisplay {

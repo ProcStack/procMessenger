@@ -49,11 +49,11 @@
 
     <!-- Modals -->
 
-    <!-- Topic Creation Modal -->
+    <!-- Topic Create / Edit Modal -->
     <div id="topicModal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>Create New Topic</h3>
+                <h3 id="topicModalTitle">Create New Topic</h3>
                 <button class="btn-close-modal" onclick="closeTopicModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -63,7 +63,7 @@
                 <textarea id="topicInfoInput" rows="6" placeholder="Enter additional context here..."></textarea>
             </div>
             <div class="modal-footer">
-                <button class="btn-primary" onclick="createNewTopic()">Save Topic</button>
+                <button class="btn-primary" onclick="saveTopic()">Save Topic</button>
             </div>
         </div>
     </div>
@@ -78,20 +78,35 @@
             <div class="modal-body" id="topicSelectList">
                 <div class="empty-list">Loading topics...</div>
             </div>
-            <div class="modal-footer">
+            <div class="modal-footer topic-select-footer">
+                <div class="topic-select-actions">
+                    <button class="btn-secondary" onclick="openTopicModalFromSelect('new')">New</button>
+                    <button class="btn-secondary" onclick="openTopicModalFromSelect('edit')">Edit</button>
+                </div>
                 <button class="btn-secondary" onclick="closeTopicSelectModal()">Close</button>
             </div>
         </div>
     </div>
 
-    <!-- Message Display — Tabbed by computer -->
-    <div class="section">
-        <div class="section-title">Responses</div>
-        <div id="messageTabs">
-            <div class="empty-list">No messages yet</div>
-        </div>
-        <div id="messageArea">
-            <div class="empty-list">Messages will appear here</div>
+    <!-- Floating Responses Button -->
+    <button id="btnResponsesFab" class="responses-fab" onclick="toggleResponsesModal()">
+        <span class="responses-fab-icon">&#x1F4C4;</span>
+        <span id="responsesBadge" class="responses-badge" style="display:none"></span>
+    </button>
+
+    <!-- Responses Modal -->
+    <div id="responsesModal" class="modal-overlay">
+        <div class="modal-content responses-modal-content">
+            <div class="modal-header">
+                <h3>Responses</h3>
+                <button class="btn-close-modal" onclick="toggleResponsesModal()">&times;</button>
+            </div>
+            <div id="messageTabs" class="responses-tabs">
+                <div class="empty-list">No messages yet</div>
+            </div>
+            <div id="messageArea" class="responses-area">
+                <div class="empty-list">Messages will appear here</div>
+            </div>
         </div>
     </div>
 

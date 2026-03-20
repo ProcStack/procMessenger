@@ -248,6 +248,28 @@ function routeMessage(ws, raw) {
         return;
     }
 
+    // Handle topic update
+    if (type === "topic_update" && target === "server") {
+        const topics = loadTopics();
+        const idx = topics.findIndex(t => t.id === payload.id);
+        if (idx === -1) {
+            const errMsg = buildMessage("error", "server", source, {
+                code: "TOPIC_NOT_FOUND",
+                message: `Topic with id '${payload.id}' not found.`,
+            });
+            ws.send(errMsg);
+            return;
+        }
+        topics[idx].name = payload.name || topics[idx].name;
+        topics[idx].info = payload.info || topics[idx].info;
+        topics[idx].updatedAt = new Date().toISOString();
+        saveTopics(topics);
+
+        const announceMsg = buildMessage("topics", "server", "all", { topics });
+        broadcast(announceMsg);
+        return;
+    }
+
     // Mobile requesting a file from a specific owner client.
     // The server acts as a relay — forward to the ownerClient, which will send file_transfer_data
     // chunks back with target = original requester (mobile).

@@ -555,7 +555,6 @@ function renderLlmPanel(panel) {
             </div>
             <div class="topic-section">
                 <div id="topicDisplay" class="topic-display" title="${escapeHtml(topicsDisplayText)}">${escapeHtml(topicsDisplayText)}</div>
-                <button id="btnNewTopic" class="btn-new-topic btn-secondary btn-sm">New</button>
             </div>
         </div>
         <div id="llmChatDisplay" class="llm-chat-display"></div>
@@ -565,7 +564,6 @@ function renderLlmPanel(panel) {
     document.getElementById("btnRefreshModels").addEventListener("click", refreshLlmModels);
     document.getElementById("llmProvider").addEventListener("change", updateModelDropdown);
     document.getElementById("topicDisplay").addEventListener("click", openTopicSelectModal);
-    document.getElementById("btnNewTopic").addEventListener("click", openTopicModal);
 
     // Populate model dropdown for current provider
     updateModelDropdown();
@@ -1045,6 +1043,28 @@ function addMessageToTab(clientName, direction, type, text) {
 
     renderMessageTabs();
     renderMessages();
+    updateResponsesBadge();
+}
+
+function toggleResponsesModal() {
+    const modal = document.getElementById("responsesModal");
+    if (modal) modal.classList.toggle("visible");
+    // Clear badge when opening
+    if (modal && modal.classList.contains("visible")) {
+        const badge = document.getElementById("responsesBadge");
+        if (badge) { badge.style.display = "none"; badge.textContent = ""; }
+    }
+}
+
+function updateResponsesBadge() {
+    const modal = document.getElementById("responsesModal");
+    // Only show badge when modal is closed
+    if (modal && modal.classList.contains("visible")) return;
+    const badge = document.getElementById("responsesBadge");
+    if (!badge) return;
+    const current = parseInt(badge.textContent || "0", 10);
+    badge.textContent = String(current + 1);
+    badge.style.display = "flex";
 }
 
 function renderMessageTabs() {
@@ -1663,17 +1683,54 @@ function fbDownloadFromViewer() {
 // Topics Management
 // ============================================================================
 
-function openTopicModal() {
+let editingTopicId = null;  // null = creating new, string = editing existing
+
+function openTopicModal(topicToEdit) {
     const modal = document.getElementById("topicModal");
-    if (modal) modal.classList.add("visible");
+    const title = document.getElementById("topicModalTitle");
+    const nameInput = document.getElementById("topicNameInput");
+    const infoInput = document.getElementById("topicInfoInput");
+    if (!modal) return;
+
+    if (topicToEdit) {
+        editingTopicId = topicToEdit.id;
+        if (title) title.textContent = "Edit Topic";
+        if (nameInput) nameInput.value = topicToEdit.name || "";
+        if (infoInput) infoInput.value = topicToEdit.info || "";
+    } else {
+        editingTopicId = null;
+        if (title) title.textContent = "Create New Topic";
+        if (nameInput) nameInput.value = "";
+        if (infoInput) infoInput.value = "";
+    }
+
+    modal.classList.add("visible");
 }
 
 function closeTopicModal() {
     const modal = document.getElementById("topicModal");
     if (modal) modal.classList.remove("visible");
+    editingTopicId = null;
 }
 
-function createNewTopic() {
+function openTopicModalFromSelect(action) {
+    if (action === "edit") {
+        // Find the first selected topic to edit
+        const selected = serverTopics.find(t => selectedTopicIds.has(t.id));
+        if (!selected) {
+            alert("Select a topic to edit first.");
+            return;
+        }
+        // Close the Select Topics window first, then open Edit
+        const selectModal = document.getElementById("topicSelectModal");
+        if (selectModal) selectModal.classList.remove("visible");
+        openTopicModal(selected);
+    } else {
+        openTopicModal(null);
+    }
+}
+
+function saveTopic() {
     const nameInput = document.getElementById("topicNameInput");
     const infoInput = document.getElementById("topicInfoInput");
     const name = nameInput ? nameInput.value.trim() : "";
@@ -1685,13 +1742,17 @@ function createNewTopic() {
     }
 
     if (wsManager && wsManager.connected) {
-        wsManager.send("topic_create", "server", { name, info });
-        
-        // Reset inputs and close
+        if (editingTopicId) {
+            wsManager.send("topic_update", "server", { id: editingTopicId, name, info });
+            setStatus("connected", `Topic "${name}" updated.`);
+        } else {
+            wsManager.send("topic_create", "server", { name, info });
+            setStatus("connected", `Topic "${name}" sent to server.`);
+        }
+
         nameInput.value = "";
         infoInput.value = "";
         closeTopicModal();
-        setStatus("connected", `Topic "${name}" sent to server.`);
     } else {
         setStatus("error", "Not connected to server.");
     }
