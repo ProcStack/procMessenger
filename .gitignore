@@ -185,3 +185,4 @@ cython_debug/
 *.psd
 /LLM_Chat/chat_history
 /Client_APK/app/release
+Client_APK/local.properties

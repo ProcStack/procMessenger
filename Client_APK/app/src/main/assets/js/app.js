@@ -20,6 +20,10 @@ let llmActiveChatName = "";        // Currently active chat name
 let llmChatHistory = [];           // Messages in the active LLM chat
 let llmChatList = [];              // List of saved chat sessions
 
+// --- Topic State ---
+let serverTopics = [];             // List of topics from server
+let selectedTopicIds = new Set();  // Set of IDs of selected topics
+
 // --- branchShredder State ---
 let bsRecentScenes = [];           // From system → recent_scenes response
 let bsNodeIndex = [];              // From find_nodes response — lightweight node list
@@ -34,22 +38,28 @@ let fbInFlight = {};
 document.addEventListener("DOMContentLoaded", () => {
     loadNicknames();
     setupEventListeners();
+    setupLinkHandler();
     populateFunctionDropdown();
     updateDynamicPanel();
     updateConnectionButtons("disconnected");
 
-    // Restore saved settings (or fall back to config defaults)
-    document.getElementById("serverLanIp").value =
-        localStorage.getItem("serverLanIp") || CONFIG.LAN_IP;
-    document.getElementById("serverTailscaleIp").value =
-        localStorage.getItem("serverTailscaleIp") || CONFIG.TAILSCALE_IP;
-    document.getElementById("serverPort").value =
-        localStorage.getItem("serverPort") || CONFIG.PORT;
+    // Restore last-used IP and port (or fall back to config defaults)
+    const recentIps = getRecentIps();
+    if (recentIps.length > 0) {
+        document.getElementById("serverIp").value = recentIps[0].ip;
+        document.getElementById("serverPort").value = recentIps[0].port;
+    } else {
+        document.getElementById("serverIp").value =
+            localStorage.getItem("serverIp") || CONFIG.DEFAULT_IP;
+        document.getElementById("serverPort").value =
+            localStorage.getItem("serverPort") || CONFIG.PORT;
+    }
 });
 
 function setupEventListeners() {
     document.getElementById("btnConnect").addEventListener("click", handleConnect);
     document.getElementById("btnDisconnect").addEventListener("click", handleDisconnect);
+    document.getElementById("btnRecentIps").addEventListener("click", openRecentIpsModal);
     document.getElementById("functionSelect").addEventListener("change", updateDynamicPanel);
     document.getElementById("btnSend").addEventListener("click", handleSend);
 }
@@ -57,17 +67,16 @@ function setupEventListeners() {
 // --- Connection ---
 
 function handleConnect() {
-    const lanIp = document.getElementById("serverLanIp").value.trim();
-    const tailscaleIp = document.getElementById("serverTailscaleIp").value.trim();
+    const ip = document.getElementById("serverIp").value.trim();
     const port = parseInt(document.getElementById("serverPort").value.trim(), 10);
 
-    if (!lanIp || !port) {
-        setStatus("error", "Please enter a valid LAN IP and port.");
+    if (!ip || !port) {
+        setStatus("error", "Please enter a valid IP address and port.");
         return;
     }
 
     wsManager = new WebSocketManager(onMessage, setStatus, onClientListUpdate);
-    wsManager.connect(lanIp, tailscaleIp, port);
+    wsManager.connect(ip, port);
 }
 
 function handleDisconnect() {
@@ -92,15 +101,110 @@ function setStatus(state, text) {
     el.className = "status " + state;
     updateConnectionButtons(state);
 
-    // Persist server addresses after a successful connection
+    // Persist server address and add to recent list after a successful connection
     if (state === "connected") {
-        const lanIp = document.getElementById("serverLanIp").value.trim();
-        const tailscaleIp = document.getElementById("serverTailscaleIp").value.trim();
+        const ip = document.getElementById("serverIp").value.trim();
         const port = document.getElementById("serverPort").value.trim();
-        if (lanIp) localStorage.setItem("serverLanIp", lanIp);
-        localStorage.setItem("serverTailscaleIp", tailscaleIp);
+        if (ip) localStorage.setItem("serverIp", ip);
         if (port) localStorage.setItem("serverPort", port);
+
+        if (ip && port) {
+            addRecentIp(ip, port);
+        }
+
+        // Fetch server known data on connection
+        requestServerData();
     }
+}
+
+function requestServerData() {
+    if (wsManager && wsManager.connected) {
+        wsManager.send("server_known_data", "server", {});
+    }
+}
+
+// --- Recent IPs ---
+
+function getRecentIps() {
+    try {
+        return JSON.parse(localStorage.getItem("recentIps") || "[]");
+    } catch {
+        return [];
+    }
+}
+
+function saveRecentIps(list) {
+    localStorage.setItem("recentIps", JSON.stringify(list));
+}
+
+function addRecentIp(ip, port) {
+    let list = getRecentIps();
+    const key = `${ip}:${port}`;
+    // Remove existing entry if present
+    list = list.filter((entry) => `${entry.ip}:${entry.port}` !== key);
+    // Insert at the top
+    list.unshift({ ip, port: String(port) });
+    saveRecentIps(list);
+}
+
+function removeRecentIp(ip, port) {
+    let list = getRecentIps();
+    const key = `${ip}:${port}`;
+    list = list.filter((entry) => `${entry.ip}:${entry.port}` !== key);
+    saveRecentIps(list);
+    renderRecentIpsList();
+}
+
+function openRecentIpsModal() {
+    renderRecentIpsList();
+    document.getElementById("recentIpsModal").classList.add("visible");
+}
+
+function closeRecentIpsModal() {
+    document.getElementById("recentIpsModal").classList.remove("visible");
+}
+
+function selectRecentIp(ip, port) {
+    document.getElementById("serverIp").value = ip;
+    document.getElementById("serverPort").value = port;
+    closeRecentIpsModal();
+}
+
+function renderRecentIpsList() {
+    const container = document.getElementById("recentIpsList");
+    const list = getRecentIps();
+
+    if (list.length === 0) {
+        container.innerHTML = '<div class="empty-list">No recent connections</div>';
+        return;
+    }
+
+    container.innerHTML = "";
+    list.forEach((entry) => {
+        const item = document.createElement("div");
+        item.className = "recent-ip-item";
+
+        const label = document.createElement("span");
+        label.className = "recent-ip-label";
+        label.textContent = `${entry.ip}:${entry.port}`;
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "btn-delete-recent";
+        deleteBtn.innerHTML = "&times;";
+        deleteBtn.title = "Remove";
+        deleteBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            removeRecentIp(entry.ip, entry.port);
+        });
+
+        item.addEventListener("click", () => {
+            selectRecentIp(entry.ip, entry.port);
+        });
+
+        item.appendChild(label);
+        item.appendChild(deleteBtn);
+        container.appendChild(item);
+    });
 }
 
 // --- Client List ---
@@ -417,6 +521,12 @@ function renderLlmPanel(panel) {
         ? llmModes.map(m => `<option value="${escapeHtml(m.value)}">${escapeHtml(m.label)}</option>`).join("")
         : '<option value="ask">Ask</option><option value="agent">Agent</option><option value="plan">Plan</option>';
 
+    // Get display names of selected topics
+    const selectedTopics = serverTopics.filter(t => selectedTopicIds.has(t.id));
+    const topicsDisplayText = selectedTopics.length > 0 
+        ? selectedTopics.map(t => t.name).join(", ") 
+        : "Select topics...";
+
     panel.innerHTML = `
         <div class="llm-controls">
             <div class="llm-row">
@@ -443,6 +553,10 @@ function renderLlmPanel(panel) {
                 </div>
                 <button id="btnLlmHistory" class="btn-secondary" style="align-self:flex-end">Chat History</button>
             </div>
+            <div class="topic-section">
+                <div id="topicDisplay" class="topic-display" title="${escapeHtml(topicsDisplayText)}">${escapeHtml(topicsDisplayText)}</div>
+                <button id="btnNewTopic" class="btn-new-topic btn-secondary btn-sm">New</button>
+            </div>
         </div>
         <div id="llmChatDisplay" class="llm-chat-display"></div>
     `;
@@ -450,6 +564,8 @@ function renderLlmPanel(panel) {
     document.getElementById("btnLlmHistory").addEventListener("click", openChatHistoryModal);
     document.getElementById("btnRefreshModels").addEventListener("click", refreshLlmModels);
     document.getElementById("llmProvider").addEventListener("change", updateModelDropdown);
+    document.getElementById("topicDisplay").addEventListener("click", openTopicSelectModal);
+    document.getElementById("btnNewTopic").addEventListener("click", openTopicModal);
 
     // Populate model dropdown for current provider
     updateModelDropdown();
@@ -620,6 +736,33 @@ function onMessage(msg) {
     const source = msg.source || "unknown";
     const type = msg.type || "";
     const payload = msg.payload || {};
+
+    if (type === "server_known_data") {
+        fbFileList = payload.files || [];
+        serverTopics = payload.topics || [];
+        // Refresh panel if showing
+        const functionType = document.getElementById("functionSelect").value;
+        if (functionType === "llm_chat" || functionType === "file_browser") {
+            updateDynamicPanel();
+        }
+        return;
+    }
+
+    if (type === "topics") {
+        serverTopics = payload.topics || [];
+        if (document.getElementById("functionSelect").value === "llm_chat") {
+            const panel = document.getElementById("dynamicPanel");
+            // Only re-render if modals aren't open to avoid UX jump
+            if (!document.querySelector(".modal-overlay.visible")) {
+                renderLlmPanel(panel);
+            }
+            // Always update the topic select list if it's currently showing
+            if (document.getElementById("topicSelectModal").classList.contains("visible")) {
+                renderTopicSelectList();
+            }
+        }
+        return;
+    }
 
     // --- LLM-specific messages ---
     if (type === "llm_announce") {
@@ -1015,6 +1158,9 @@ function handleLlmSend() {
     const provider = document.getElementById("llmProvider")?.value || "llama";
     const mode = document.getElementById("llmMode")?.value || "ask";
     const model = document.getElementById("llmModel")?.value || "";
+    
+    // Include selected topics in payload
+    const selectedTopics = serverTopics.filter(t => selectedTopicIds.has(t.id));
 
     wsManager.send("llm_chat", "llm-chat", {
         chatName: chatName,
@@ -1022,6 +1168,7 @@ function handleLlmSend() {
         provider: provider,
         mode: mode,
         model: model,
+        topics: selectedTopics
     });
 
     // Add user message to local chat display
@@ -1117,7 +1264,8 @@ function renderLlmChatMessages() {
         if (msg.role === "assistant") {
             body.innerHTML = renderMarkdown(msg.content || "");
         } else {
-            body.textContent = msg.content || "";
+            // Preserve newlines for user messages as well
+            body.innerHTML = renderMarkdown(msg.content || "");
         }
 
         el.appendChild(role);
@@ -1186,6 +1334,25 @@ function renderMarkdown(text) {
     html = html.replace(/<p>(<hr)/g, "$1");
 
     return html;
+}
+
+/**
+ * Handle clicks on Markdown links to prompt for external launch.
+ * Uses event delegation on the document.
+ */
+function setupLinkHandler() {
+    document.addEventListener("click", (e) => {
+        const link = e.target.closest(".md-link");
+        if (link && link.href) {
+            e.preventDefault();
+            const url = link.href;
+            if (confirm(`Open external link?\n\n${url}`)) {
+                // In a WebView, window.open(url, '_blank') usually triggers the OS to 
+                // handle the URL via the default browser.
+                window.open(url, "_blank");
+            }
+        }
+    });
 }
 
 // --- Chat History Modal ---
@@ -1490,4 +1657,106 @@ function fbDownloadFromViewer() {
     const type = dlBtn.dataset.type || "application/octet-stream";
     if (!b64) { setStatus("error", "No file data to download."); return; }
     fbDownloadFile(b64, name, type);
+}
+
+// ============================================================================
+// Topics Management
+// ============================================================================
+
+function openTopicModal() {
+    const modal = document.getElementById("topicModal");
+    if (modal) modal.classList.add("visible");
+}
+
+function closeTopicModal() {
+    const modal = document.getElementById("topicModal");
+    if (modal) modal.classList.remove("visible");
+}
+
+function createNewTopic() {
+    const nameInput = document.getElementById("topicNameInput");
+    const infoInput = document.getElementById("topicInfoInput");
+    const name = nameInput ? nameInput.value.trim() : "";
+    const info = infoInput ? infoInput.value.trim() : "";
+
+    if (!name || !info) {
+        alert("Please enter both a topic name and information.");
+        return;
+    }
+
+    if (wsManager && wsManager.connected) {
+        wsManager.send("topic_create", "server", { name, info });
+        
+        // Reset inputs and close
+        nameInput.value = "";
+        infoInput.value = "";
+        closeTopicModal();
+        setStatus("connected", `Topic "${name}" sent to server.`);
+    } else {
+        setStatus("error", "Not connected to server.");
+    }
+}
+
+function openTopicSelectModal() {
+    const modal = document.getElementById("topicSelectModal");
+    if (modal) {
+        modal.classList.add("visible");
+        renderTopicSelectList();
+    }
+}
+
+function closeTopicSelectModal() {
+    const modal = document.getElementById("topicSelectModal");
+    if (modal) {
+        modal.classList.remove("visible");
+        // Update the main panel's display of selected topics
+        if (document.getElementById("functionSelect").value === "llm_chat") {
+            const display = document.getElementById("topicDisplay");
+            if (display) {
+                const selectedTopics = serverTopics.filter(t => selectedTopicIds.has(t.id));
+                const text = selectedTopics.length > 0 
+                    ? selectedTopics.map(t => t.name).join(", ") 
+                    : "Select topics...";
+                display.textContent = text;
+                display.title = text;
+            }
+        }
+    }
+}
+
+function renderTopicSelectList() {
+    const container = document.getElementById("topicSelectList");
+    if (!container) return;
+    container.innerHTML = "";
+
+    if (serverTopics.length === 0) {
+        container.innerHTML = '<div class="empty-list">No topics found on server.</div>';
+        return;
+    }
+
+    serverTopics.forEach((topic) => {
+        const item = document.createElement("div");
+        const isSelected = selectedTopicIds.has(topic.id);
+        item.className = "topic-select-item" + (isSelected ? " selected" : "");
+        
+        item.innerHTML = `
+            <input type="checkbox" class="topic-select-checkbox" ${isSelected ? "checked" : ""} />
+            <div class="topic-select-info">
+                <div class="topic-select-name">${escapeHtml(topic.name)}</div>
+                <div class="topic-select-desc">${escapeHtml(topic.info.substring(0, 60))}${topic.info.length > 60 ? "..." : ""}</div>
+            </div>
+        `;
+
+        item.addEventListener("click", (e) => {
+            // Toggle checkbox and selection
+            if (selectedTopicIds.has(topic.id)) {
+                selectedTopicIds.delete(topic.id);
+            } else {
+                selectedTopicIds.add(topic.id);
+            }
+            renderTopicSelectList();
+        });
+
+        container.appendChild(item);
+    });
 }

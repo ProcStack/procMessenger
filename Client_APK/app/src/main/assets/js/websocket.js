@@ -2,16 +2,8 @@
  * procMessenger Mobile — WebSocket Manager
  *
  * Handles connection lifecycle, registration, message sending/receiving.
- * Supports automatic Tailscale → LAN fallback:
- *   - If a Tailscale IP is configured, it is tried first.
- *   - If Tailscale is unreachable (connection refused or no response within
- *     TAILSCALE_TIMEOUT ms), the LAN IP is tried automatically.
- *   - Reconnects always repeat the same Tailscale-first logic so the VPN
- *     is picked back up whenever it comes online.
+ * Connects directly to the provided IP (LAN or Tailscale — treated the same).
  */
-
-// Time (ms) to wait for a Tailscale connection before falling back to LAN
-const TAILSCALE_TIMEOUT = 4000;
 
 class WebSocketManager {
     constructor(onMessage, onStatusChange, onClientListUpdate) {
@@ -22,26 +14,17 @@ class WebSocketManager {
         this.reconnectTimer = null;
         this.connected = false;
 
-        // Persisted across reconnects
-        this.lanIp = "";
-        this.tailscaleIp = "";
+        this.ip = "";
         this.port = CONFIG.PORT;
     }
 
     /**
-     * Connect to the server.
-     * Tries tailscaleIp first (if set), falls back to lanIp on failure.
+     * Connect to the server at ip:port.
      */
-    connect(lanIp, tailscaleIp, port) {
-        this.lanIp = lanIp;
-        this.tailscaleIp = (tailscaleIp || "").trim();
+    connect(ip, port) {
+        this.ip = ip;
         this.port = port;
-
-        if (this.tailscaleIp) {
-            this._connectTo(this.tailscaleIp, /* tryLanOnFail */ true);
-        } else {
-            this._connectTo(this.lanIp, /* tryLanOnFail */ false);
-        }
+        this._connectTo(this.ip);
     }
 
     /**
@@ -100,11 +83,8 @@ class WebSocketManager {
 
     /**
      * Attempt a WebSocket connection to `ip:port`.
-     * If tryLanOnFail is true and the connection doesn't open within
-     * TAILSCALE_TIMEOUT ms (or is refused), the LAN IP is tried instead.
      */
-    _connectTo(ip, tryLanOnFail) {
-        // Clear any previous connection without triggering its handlers
+    _connectTo(ip) {
         if (this.ws) {
             this.ws.onopen = null;
             this.ws.onmessage = null;
@@ -121,47 +101,15 @@ class WebSocketManager {
         const url = `ws://${ip}:${this.port}`;
         this.onStatusChange("connecting", `Connecting to ${url}...`);
 
-        // Once this flag is set, we've already decided the outcome for this
-        // attempt and subsequent events should be ignored.
-        let handled = false;
-
-        const fallback = () => {
-            if (handled) return;
-            handled = true;
-            if (this.ws) {
-                this.ws.onopen = null;
-                this.ws.onmessage = null;
-                this.ws.onclose = null;
-                this.ws.onerror = null;
-                this.ws.close();
-                this.ws = null;
-            }
-            this.onStatusChange("connecting", `Tailscale unavailable, trying LAN (${this.lanIp})...`);
-            this._connectTo(this.lanIp, false);
-        };
-
-        // Timeout – fires if Tailscale is reachable but slow to respond
-        const timeoutHandle = tryLanOnFail
-            ? setTimeout(fallback, TAILSCALE_TIMEOUT)
-            : null;
-
         try {
             this.ws = new WebSocket(url);
         } catch (e) {
-            if (timeoutHandle) clearTimeout(timeoutHandle);
-            if (tryLanOnFail) {
-                this.onStatusChange("connecting", `Tailscale failed, trying LAN (${this.lanIp})...`);
-                this._connectTo(this.lanIp, false);
-            } else {
-                this.onStatusChange("error", `Failed to connect: ${e.message}`);
-                this._scheduleReconnect();
-            }
+            this.onStatusChange("error", `Failed to connect: ${e.message}`);
+            this._scheduleReconnect();
             return;
         }
 
         this.ws.onopen = () => {
-            if (timeoutHandle) clearTimeout(timeoutHandle);
-            handled = true;
             this.connected = true;
             this.onStatusChange("connected", `Connected to ${url}`);
             this._register();
@@ -179,31 +127,14 @@ class WebSocketManager {
         };
 
         this.ws.onclose = (event) => {
-            if (timeoutHandle) clearTimeout(timeoutHandle);
-            if (handled) {
-                // Was successfully connected; now disconnected — schedule reconnect
-                this.connected = false;
-                this.ws = null;
-                this.onStatusChange("disconnected", `Disconnected (code=${event.code})`);
-                this._scheduleReconnect();
-                return;
-            }
-            // Connection never opened — treat as failure
-            if (tryLanOnFail) {
-                fallback();
-            } else {
-                handled = true;
-                this.ws = null;
-                this.onStatusChange("disconnected", `Could not connect (code=${event.code})`);
-                this._scheduleReconnect();
-            }
+            this.connected = false;
+            this.ws = null;
+            this.onStatusChange("disconnected", `Disconnected (code=${event.code})`);
+            this._scheduleReconnect();
         };
 
         this.ws.onerror = () => {
-            // onerror always fires before onclose; onclose will handle the logic
-            if (!handled) {
-                console.warn(`[WS] Connection error on ${url}`);
-            }
+            console.warn(`[WS] Connection error on ${url}`);
         };
     }
 
@@ -239,8 +170,7 @@ class WebSocketManager {
         this.onStatusChange("reconnecting", `Reconnecting in ${CONFIG.RECONNECT_DELAY / 1000}s...`);
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
-            // Re-run full Tailscale-first logic on each reconnect
-            this.connect(this.lanIp, this.tailscaleIp, this.port);
+            this.connect(this.ip, this.port);
         }, CONFIG.RECONNECT_DELAY);
     }
 

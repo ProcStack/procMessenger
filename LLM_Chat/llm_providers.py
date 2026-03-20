@@ -164,7 +164,7 @@ async def _fetch_anthropic_models(prov):
     return models if models else [{"id": prov["model"], "name": prov["model"]}]
 
 
-async def chat_completion(provider_key, messages, mode="ask", model=None):
+async def chat_completion(provider_key, messages, mode="ask", model=None, injected_prompt=""):
     """
     Send a chat completion request to the specified provider.
 
@@ -173,6 +173,7 @@ async def chat_completion(provider_key, messages, mode="ask", model=None):
         messages: List of {"role": "...", "content": "..."} dicts
         mode: Current LLM mode ("ask", "agent", "plan")
         model: Specific model ID to use. Falls back to provider default if None.
+        injected_prompt: Any additional system prompt information to inject.
 
     Returns:
         str: The assistant's response text
@@ -185,6 +186,8 @@ async def chat_completion(provider_key, messages, mode="ask", model=None):
     effective_model = model if model else prov["model"]
 
     system_prompt = get_system_prompt()
+    if injected_prompt:
+        system_prompt += "\n" + injected_prompt
 
     # Append mode-specific instruction
     mode_suffix = {

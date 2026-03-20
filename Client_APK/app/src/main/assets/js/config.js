@@ -1,14 +1,8 @@
 // procMessenger Mobile — Configuration
 
 const CONFIG = {
-    // Local network IP — used when Tailscale is unavailable
-    // Change this to your server's LAN IP (e.g. 192.168.1.100)
-    LAN_IP: "192.168.1.100",
-
-    // Tailscale VPN IP — the server's 100.x.x.x address assigned by Tailscale
-    // Leave blank ("") to skip Tailscale and always connect via LAN
-    // Find this by running:  python tailscale_vpn.py  on the server machine
-    TAILSCALE_IP: "",
+    // Default server IP — used when no recent connections exist
+    DEFAULT_IP: "192.168.1.100",
 
     PORT: 9734,
 

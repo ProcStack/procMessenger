@@ -204,7 +204,15 @@ async def handle_llm_message(ws, msg):
 
         # Call the LLM
         try:
-            response_text = await chat_completion(provider, llm_messages, mode=mode, model=model)
+            # Build current system prompt including any injected topics
+            topics = payload.get("topics", [])
+            injected_prompt = ""
+            if topics:
+                injected_prompt = "\n\nAdditional context for this conversation:\n"
+                for t in topics:
+                    injected_prompt += f"--- {t['name']} ---\n{t['info']}\n\n"
+            
+            response_text = await chat_completion(provider, llm_messages, mode=mode, model=model, injected_prompt=injected_prompt)
         except Exception as e:
             logger.error(f"LLM completion error: {e}")
             response_text = f"Error: LLM completion failed — {e}"

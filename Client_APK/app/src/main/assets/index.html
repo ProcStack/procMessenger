@@ -12,9 +12,9 @@
     <div class="section">
         <div class="section-title">Connection</div>
         <div class="connection-bar">
-            <input type="text" id="serverLanIp" placeholder="LAN IP (e.g. 192.168.1.100)" />
-            <input type="text" id="serverTailscaleIp" placeholder="Tailscale IP (100.x.x.x, optional)" />
+            <input type="text" id="serverIp" placeholder="IP address (LAN or Tailscale)" />
             <input type="number" id="serverPort" class="port-input" placeholder="Port" value="9734" />
+            <button id="btnRecentIps" class="btn-recent" title="Recent connections">&larr;</button>
             <button id="btnConnect" class="btn-connect">Connect</button>
             <button id="btnDisconnect" class="btn-disconnect">Disconnect</button>
         </div>
@@ -47,6 +47,43 @@
         <button id="btnSend">Send Message</button>
     </div>
 
+    <!-- Modals -->
+
+    <!-- Topic Creation Modal -->
+    <div id="topicModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Create New Topic</h3>
+                <button class="btn-close-modal" onclick="closeTopicModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label>Topic Name:</label>
+                <input type="text" id="topicNameInput" placeholder="Enter topic name..." />
+                <label>Topic Info (System Prompt addition):</label>
+                <textarea id="topicInfoInput" rows="6" placeholder="Enter additional context here..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" onclick="createNewTopic()">Save Topic</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Topic Selection Modal -->
+    <div id="topicSelectModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Select Topics</h3>
+                <button class="btn-close-modal" onclick="closeTopicSelectModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="topicSelectList">
+                <div class="empty-list">Loading topics...</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeTopicSelectModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Message Display — Tabbed by computer -->
     <div class="section">
         <div class="section-title">Responses</div>
@@ -71,6 +108,22 @@
             <div class="modal-footer">
                 <input type="text" id="newChatNameInput" placeholder="New chat name..." />
                 <button class="btn-secondary" onclick="createNewChat()">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent IPs Modal -->
+    <div id="recentIpsModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Recent Connections</h3>
+                <button class="btn-close-modal" onclick="closeRecentIpsModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="recentIpsList">
+                <div class="empty-list">No recent connections</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeRecentIpsModal()">Close</button>
             </div>
         </div>
     </div>
