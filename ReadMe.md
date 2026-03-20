@@ -92,11 +92,12 @@ See [Protocol.md](Protocol.md) for the full specification, message formats, flag
 
 ### Quick Start
 
-#### Mobile -
 <p align='center'>
   <img src="Client_APK/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" alt="procMessenger App Icon" />
   <br/>procMessenger Icon
 </p>
+
+#### Mobile -
 
 In `./Client_APK` you'll find an apk in the root of the directory.  I haven't submitted it to any playstores yet, so you'll need to manually install it.
 
