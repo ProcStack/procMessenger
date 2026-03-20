@@ -20,6 +20,10 @@ let llmActiveChatName = "";        // Currently active chat name
 let llmChatHistory = [];           // Messages in the active LLM chat
 let llmChatList = [];              // List of saved chat sessions
 
+// --- branchShredder State ---
+let bsRecentScenes = [];           // From system → recent_scenes response
+let bsNodeIndex = [];              // From find_nodes response — lightweight node list
+
 // --- Initialization ---
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -203,10 +207,7 @@ function updateDynamicPanel() {
             break;
 
         case "edit_story":
-            panel.innerHTML = `
-                <label>Story Editor Message:</label>
-                <textarea id="storyMessage" class="full-width" rows="4" placeholder="Instructions for the story editor..."></textarea>
-            `;
+            renderBranchShredderPanel(panel);
             break;
 
         case "llm_chat":
@@ -216,6 +217,179 @@ function updateDynamicPanel() {
         default:
             panel.innerHTML = '<div class="empty-list">Select a function above</div>';
     }
+}
+
+// --- branchShredder Panel ---
+
+function renderBranchShredderPanel(panel) {
+    const recentOpts = bsRecentScenes.length > 0
+        ? bsRecentScenes.map(s => `<option value="${escapeHtml(s.path)}">${escapeHtml(s.name || s.path)}</option>`).join("")
+        : '<option value="">-- request recent scenes first --</option>';
+
+    const nodeOpts = bsNodeIndex.length > 0
+        ? bsNodeIndex.map(n => `<option value="${escapeHtml(n.id)}">[${escapeHtml(n.type)}] ${escapeHtml(n.name)}</option>`).join("")
+        : '<option value="">-- find nodes first --</option>';
+
+    panel.innerHTML = `
+        <div class="bs-panel">
+
+            <div class="bs-section-title">Graph Operations</div>
+
+            <div class="bs-command-row">
+                <span class="bs-cmd-label">Query Nodes <small>(full content)</small></span>
+                <button id="bsBtnQueryNodes" class="btn-secondary btn-sm">Run</button>
+            </div>
+
+            <div class="bs-command-row">
+                <span class="bs-cmd-label">Find Nodes <small>(index only)</small></span>
+                <button id="bsBtnFindNodes" class="btn-secondary btn-sm">Run</button>
+            </div>
+
+            <div class="bs-command-row">
+                <span class="bs-cmd-label">Get Node</span>
+                <select id="bsGetNodeSelect" class="bs-select">${nodeOpts}</select>
+                <button id="bsBtnGetNode" class="btn-secondary btn-sm">Get</button>
+            </div>
+
+            <div class="bs-command-row">
+                <span class="bs-cmd-label">Update Node</span>
+                <button id="bsBtnToggleUpdate" class="btn-secondary btn-sm">&#9660; Edit</button>
+            </div>
+            <div id="bsUpdateForm" class="bs-sub-form" style="display:none">
+                <label>Node:</label>
+                <select id="bsUpdateNodeSelect" class="bs-select full-width">${nodeOpts}</select>
+                <label>New name <small>(leave blank to keep)</small>:</label>
+                <input type="text" id="bsUpdateName" class="full-width" placeholder="Node name..." />
+                <label>New content <small>(leave blank to keep)</small>:</label>
+                <textarea id="bsUpdateContent" class="full-width" rows="5" placeholder="Node content (Markdown)..."></textarea>
+                <button id="bsBtnSendUpdate" class="btn-primary btn-sm">Send Update</button>
+            </div>
+
+            <div class="bs-section-title">Scene &amp; System</div>
+
+            <div class="bs-command-row">
+                <span class="bs-cmd-label">System Prompt</span>
+                <button id="bsBtnSystemPrompt" class="btn-secondary btn-sm">Get</button>
+            </div>
+
+            <div class="bs-command-row">
+                <span class="bs-cmd-label">Recent Scenes</span>
+                <button id="bsBtnRecentScenes" class="btn-secondary btn-sm">Refresh</button>
+            </div>
+
+            <div class="bs-command-row">
+                <span class="bs-cmd-label">Open Scene</span>
+                <select id="bsRecentSelect" class="bs-select">${recentOpts}</select>
+                <button id="bsBtnOpenRecent" class="btn-secondary btn-sm">Open</button>
+            </div>
+
+            <div class="bs-command-row">
+                <span class="bs-cmd-label">New Scene</span>
+                <button id="bsBtnNewScene" class="btn-secondary btn-sm">New</button>
+            </div>
+
+            <div class="bs-command-row">
+                <span class="bs-cmd-label">Save Scene</span>
+                <input type="text" id="bsSaveFilename" class="bs-inline-input" placeholder="filename (optional)" />
+                <button id="bsBtnSaveScene" class="btn-secondary btn-sm">Save</button>
+            </div>
+
+            <div class="bs-section-title">Free-form Message</div>
+            <textarea id="storyMessage" class="full-width" rows="3" placeholder="Direct message to the story editor..."></textarea>
+
+        </div>
+    `;
+
+    document.getElementById("bsBtnQueryNodes").addEventListener("click", bsSendQueryNodes);
+    document.getElementById("bsBtnFindNodes").addEventListener("click", bsSendFindNodes);
+    document.getElementById("bsBtnGetNode").addEventListener("click", bsSendGetNode);
+    document.getElementById("bsBtnToggleUpdate").addEventListener("click", bsToggleUpdateForm);
+    document.getElementById("bsBtnSendUpdate").addEventListener("click", bsSendUpdateNode);
+    document.getElementById("bsBtnSystemPrompt").addEventListener("click", bsSendSystemPrompt);
+    document.getElementById("bsBtnRecentScenes").addEventListener("click", () => bsSendSystem("recent_scenes"));
+    document.getElementById("bsBtnOpenRecent").addEventListener("click", bsSendOpenRecent);
+    document.getElementById("bsBtnNewScene").addEventListener("click", () => bsSendSystem("new_scene"));
+    document.getElementById("bsBtnSaveScene").addEventListener("click", bsSendSaveScene);
+}
+
+// --- branchShredder: Send Helpers ---
+
+function bsGetTargets() {
+    const targets = getSelectedTargets();
+    if (targets.length === 0) {
+        setStatus("error", "Select at least one target computer.");
+        return null;
+    }
+    return targets;
+}
+
+function bsSendToTargets(type, payload, label) {
+    if (!wsManager || !wsManager.connected) { setStatus("error", "Not connected."); return; }
+    const targets = bsGetTargets();
+    if (!targets) return;
+    targets.forEach(t => {
+        wsManager.send(type, t, payload);
+        addMessageToTab(t, "out", type, label);
+    });
+    setStatus("connected", `Sent ${type} to ${targets.length} target(s).`);
+}
+
+function bsSendQueryNodes() {
+    bsSendToTargets("query_nodes", {}, "Query all nodes (full content)");
+}
+
+function bsSendFindNodes() {
+    bsSendToTargets("find_nodes", {}, "Find nodes (index)");
+}
+
+function bsSendGetNode() {
+    const sel = document.getElementById("bsGetNodeSelect");
+    const nodeId = sel ? sel.value : "";
+    if (!nodeId) { setStatus("error", "Select or find a node first."); return; }
+    bsSendToTargets("get_node", { nodeId }, `Get node: ${nodeId}`);
+}
+
+function bsToggleUpdateForm() {
+    const form = document.getElementById("bsUpdateForm");
+    const btn  = document.getElementById("bsBtnToggleUpdate");
+    if (!form) return;
+    const open = form.style.display !== "none";
+    form.style.display = open ? "none" : "";
+    btn.textContent = open ? "\u25bc Edit" : "\u25b2 Edit";
+}
+
+function bsSendUpdateNode() {
+    const sel     = document.getElementById("bsUpdateNodeSelect");
+    const nodeId  = sel ? sel.value : "";
+    const name    = document.getElementById("bsUpdateName")?.value.trim() || "";
+    const content = document.getElementById("bsUpdateContent")?.value || "";
+    if (!nodeId) { setStatus("error", "Select a node to update."); return; }
+    if (!name && !content) { setStatus("error", "Provide a new name and/or content."); return; }
+    const payload = { nodeId };
+    if (name)    payload.name    = name;
+    if (content) payload.content = content;
+    bsSendToTargets("update_node", payload, `Update node: ${nodeId}`);
+}
+
+function bsSendSystemPrompt() {
+    bsSendToTargets("system_prompt", {}, "Request system prompt");
+}
+
+function bsSendSystem(action, extra = {}) {
+    bsSendToTargets("system", { action, ...extra }, `System: ${action}`);
+}
+
+function bsSendOpenRecent() {
+    const sel  = document.getElementById("bsRecentSelect");
+    const path = sel ? sel.value : "";
+    if (!path) { setStatus("error", "Select a recent scene first, or refresh the list."); return; }
+    bsSendSystem("open_recent", { path });
+}
+
+function bsSendSaveScene() {
+    const filename = document.getElementById("bsSaveFilename")?.value.trim() || "";
+    const extra = filename ? { filename } : {};
+    bsSendSystem("save_scene", extra);
 }
 
 // --- LLM Chat Panel ---
@@ -499,6 +673,117 @@ function onMessage(msg) {
         } else if (payload.status === "receiving") {
             // Progress — silent
         }
+        return;
+    }
+
+    // --- branchShredder extension messages ---
+
+    if (type === "query_nodes") {
+        const nodes = payload.nodes || [];
+        if (nodes.length === 0) {
+            addMessageToTab(source, "in", type, payload.error || "No nodes returned.");
+        } else {
+            let text = `query_nodes: ${nodes.length} node(s) returned\n\n`;
+            nodes.forEach(n => {
+                text += `[${n.type}] ${n.name}  (${n.scenePath})\n`;
+                if (n.content) text += n.content.slice(0, 120) + (n.content.length > 120 ? "…" : "") + "\n";
+                text += "\n";
+            });
+            addMessageToTab(source, "in", type, text.trim());
+        }
+        return;
+    }
+
+    if (type === "find_nodes") {
+        const nodesDict = payload.nodes || {};
+        // Normalise to [{id, name, type, scenePath, nodePaths}] for internal use
+        bsNodeIndex = Object.entries(nodesDict).map(([id, n]) => ({ id, ...n }));
+        // Refresh node selects in the panel if present
+        const selGet    = document.getElementById("bsGetNodeSelect");
+        const selUpdate = document.getElementById("bsUpdateNodeSelect");
+        const opts = bsNodeIndex.length > 0
+            ? bsNodeIndex.map(n => `<option value="${escapeHtml(n.id)}">[${escapeHtml(n.type)}] ${escapeHtml(n.name)}</option>`).join("")
+            : '<option value="">-- no nodes found --</option>';
+        if (selGet)    selGet.innerHTML    = opts;
+        if (selUpdate) selUpdate.innerHTML = opts;
+        const summary = bsNodeIndex.length > 0
+            ? `find_nodes: ${bsNodeIndex.length} node(s)\n` + bsNodeIndex.map(n => `  [${n.type}] ${n.name}  (${n.scenePath})`).join("\n")
+            : (payload.error || "No nodes returned.");
+        addMessageToTab(source, "in", type, summary);
+        return;
+    }
+
+    if (type === "get_node") {
+        if (payload.error) {
+            addMessageToTab(source, "in", type, `Error: ${payload.error}`);
+            return;
+        }
+        // Pre-populate update form if it exists
+        const selUpdate = document.getElementById("bsUpdateNodeSelect");
+        if (selUpdate) {
+            // If node is already in index select it, otherwise add a temporary entry
+            let found = false;
+            for (const opt of selUpdate.options) { if (opt.value === payload.nodeId) { selUpdate.value = payload.nodeId; found = true; break; } }
+            if (!found) {
+                const opt = document.createElement("option");
+                opt.value = payload.nodeId;
+                opt.textContent = `[${payload.type}] ${payload.name}`;
+                selUpdate.appendChild(opt);
+                selUpdate.value = payload.nodeId;
+            }
+        }
+        const nameInput    = document.getElementById("bsUpdateName");
+        const contentArea  = document.getElementById("bsUpdateContent");
+        if (nameInput)   nameInput.value   = payload.name    || "";
+        if (contentArea) contentArea.value = payload.content || "";
+        const text = `get_node: ${payload.name} [${payload.type}]\n` +
+                     `Path: ${payload.scenePath}\n\n` +
+                     (payload.content || "(no content)");
+        addMessageToTab(source, "in", type, text);
+        return;
+    }
+
+    if (type === "update_node") {
+        const text = payload.status === "ok"
+            ? `update_node OK: "${payload.name || payload.nodeId}"`
+            : `update_node error: ${payload.error || "unknown error"}`;
+        addMessageToTab(source, "in", type, text);
+        return;
+    }
+
+    if (type === "system_prompt") {
+        if (payload.error) { addMessageToTab(source, "in", type, `Error: ${payload.error}`); return; }
+        addMessageToTab(source, "in", type, payload.fullSystemPrompt || JSON.stringify(payload.parts || payload, null, 2));
+        return;
+    }
+
+    if (type === "system") {
+        const results = payload.results || {};
+        // Update recent scenes list if present — code returns { status, scenes: [...] }
+        const rsResult = results.recent_scenes;
+        if (rsResult && rsResult.scenes && Array.isArray(rsResult.scenes)) {
+            bsRecentScenes = rsResult.scenes;
+            const sel = document.getElementById("bsRecentSelect");
+            if (sel) {
+                sel.innerHTML = bsRecentScenes.length > 0
+                    ? bsRecentScenes.map(s => `<option value="${escapeHtml(s.path)}">${escapeHtml(s.name || s.path)}</option>`).join("")
+                    : '<option value="">-- no recent scenes --</option>';
+            }
+        }
+        let text = "system results:\n";
+        Object.entries(results).forEach(([action, result]) => {
+            if (action === "recent_scenes" && result && Array.isArray(result.scenes)) {
+                text += `  recent_scenes (${result.scenes.length}):\n`;
+                result.scenes.forEach(s => { text += `    ${s.name || s.path}\n`; });
+            } else if (result && typeof result === "object") {
+                text += `  ${action}: ${result.status || JSON.stringify(result)}\n`;
+                if (result.name) text += `    → ${result.name}\n`;
+                if (result.error) text += `    → ${result.error}\n`;
+            } else {
+                text += `  ${action}: ${JSON.stringify(result)}\n`;
+            }
+        });
+        addMessageToTab(source, "in", type, text.trim());
         return;
     }
 
