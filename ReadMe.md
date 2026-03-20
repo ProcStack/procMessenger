@@ -94,7 +94,7 @@ See [Protocol.md](Protocol.md) for the full specification, message formats, flag
 
 <p align='center'>
   <img src="Client_APK/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" alt="procMessenger App Icon" />
-  <br/>procMessenger Icon
+  <br/>procMessenger Android App Icon
 </p>
 
 #### Mobile -
