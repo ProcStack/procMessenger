@@ -3,7 +3,7 @@
 #### With local/API LLM Chat access
 
 <p align='center'>
-  <img src="Images/procMessenger_icon_512_padding_alpha.png" alt="procMessenger top image" />
+  <img src="Images/procMessenger_header_alpha.png" alt="procMessenger top image" />
 </p>
 
 Send commands from your phone to your computers over the local network.
