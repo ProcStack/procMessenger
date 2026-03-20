@@ -40,13 +40,30 @@ There is a standardized JSON/WebSocket `protocol.md` file; showing message route
 ```
 procMessenger/
 ├── Protocol.md              # Message protocol specification & flags
-├── ReadMe.md
+├── ReadMe.md                # It's this file!
+├── tailscale_vpn.py         # Tailscale VPN helper
+├── Images/                  # Project images & assets
+├── transfers/               # File transfer staging directory
+│
+├── LLM_Chat/                # Local/API LLM chat service
+│   ├── config.py            # Provider config, model paths, .env keys
+│   ├── llm_client.py        # WebSocket client + message handler
+│   ├── llm_providers.py     # Provider adapters (Llama, Claude, OpenAI, etc)
+│   ├── chat_history.py      # Chat session persistence helpers
+│   ├── attachments.py       # File/image attachment handling
+│   ├── System.md            # LLM system prompt
+│   ├── message_functions.json # Function/tool definitions for agent mode
+│   ├── requirements.txt
+│   ├── start.bat
+│   ├── add_startup_script.bat
+│   ├── chat_history/        # Persisted chat session JSON files
+│   └── models/              # Local GGUF model files
 │
 ├── Server_Python/           # Python server + client
 │   ├── config.py            # Port, name, capabilities
 │   ├── server.py            # WebSocket server (routing, registry)
 │   ├── client.py            # Client (auto-starts server if needed)
-│   ├── handlers.py          # Message handlers (run_script, edit_story, etc)
+│   ├── handlers.py          # Message handlers (run_script, file_list, etc)
 │   ├── requirements.txt
 │   └── scripts/             # Executable scripts for "Run Script"
 │
@@ -80,11 +97,41 @@ procMessenger/
 
 ### Message Types
 
-| Type               | Direction         | Description |
-|--------------------|-------------------|-------------|
-| `run_script`       | Mobile → PC       | List or execute scripts on a target computer |
-| `gather_research`  | Mobile → PC       | Web search via local LLM + Search API + Puppeteer |
-| `edit_story`       | Mobile ↔ PC       | Relay messages to/from a story editor program |
+**Core — PC Clients**
+
+| Type              | Direction    | Description |
+|-------------------|--------------|-------------|
+| `run_script`      | Mobile → PC  | List or execute scripts on a target computer |
+| `edit_story`      | Mobile ↔ PC  | Relay messages to/from a story editor program |
+| `gather_research` | Mobile → PC  | Web search via LLM + Search API + Puppeteer *(Node.js)* |
+| `file_list`       | Mobile ↔ PC  | Browse files available on a target computer |
+| `file_fetch`      | Mobile → PC  | Request a file from a target computer |
+| `file_receive`    | PC → Mobile  | Deliver file chunks back to mobile |
+
+**LLM Chat — `LLM_Chat` service**
+
+| Type                | Direction          | Description |
+|---------------------|--------------------|-------------|
+| `llm_chat`          | Mobile ↔ LLM Chat  | Send a message and receive a response |
+| `llm_modes`         | Mobile ↔ LLM Chat  | Request available providers, modes, and models |
+| `llm_chat_list`     | Mobile ↔ LLM Chat  | List saved chat sessions |
+| `llm_chat_history`  | Mobile ↔ LLM Chat  | Load full message history for a session |
+| `llm_chat_create`   | Mobile → LLM Chat  | Create a new named chat session |
+| `llm_chat_delete`   | Mobile → LLM Chat  | Delete a chat session |
+| `attachment`        | Mobile → LLM Chat  | Send a file or image as LLM context |
+| `llm_local_models`  | Mobile ↔ LLM Chat  | Scan/list local GGUF model files |
+| `llm_model_download`| Mobile → LLM Chat  | Download a remote model |
+
+**Application Extensions — e.g. branchShredder**
+
+| Type            | Direction    | Description |
+|-----------------|--------------|-------------|
+| `query_nodes`   | Mobile ↔ PC  | Get all graph nodes with full content |
+| `find_nodes`    | Mobile ↔ PC  | Get lightweight node index |
+| `get_node`      | Mobile ↔ PC  | Retrieve a single node by ID |
+| `update_node`   | Mobile → PC  | Update a node's name or content |
+| `system_prompt` | Mobile ↔ PC  | Retrieve the application's active system prompt |
+| `system`        | Mobile ↔ PC  | Scene/system control commands |
 
 See [Protocol.md](Protocol.md) for the full specification, message formats, flags, and error codes.
 
