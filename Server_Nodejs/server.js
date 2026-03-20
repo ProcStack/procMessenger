@@ -7,6 +7,7 @@
 
 const { WebSocketServer } = require("ws");
 const { v4: uuidv4 } = require("uuid");
+const { execFile } = require("child_process");
 const config = require("./config");
 
 // Registry of connected clients
@@ -169,11 +170,40 @@ function routeMessage(ws, raw) {
     }
 }
 
+/**
+ * Detect the machine's Tailscale IP (100.64.0.0/10) via the CLI.
+ * Calls the callback with the IP string, or null if Tailscale is not running.
+ */
+function getTailscaleIp(callback) {
+    const isWin = process.platform === "win32";
+    const cli = isWin ? "tailscale.exe" : "tailscale";
+    execFile(cli, ["ip", "--4"], { timeout: 3000 }, (err, stdout) => {
+        if (!err) {
+            const ip = stdout.trim();
+            // Validate it's in the 100.64.0.0/10 range (second octet 64–127)
+            const parts = ip.split(".");
+            if (parts[0] === "100" && parseInt(parts[1], 10) >= 64 && parseInt(parts[1], 10) <= 127) {
+                return callback(ip);
+            }
+        }
+        callback(null);
+    });
+}
+
 function startServer() {
     const wss = new WebSocketServer({ host: config.HOST, port: config.PORT });
 
     wss.on("listening", () => {
         console.log(`[SERVER] procMessenger server running on ws://${config.HOST}:${config.PORT}`);
+        console.log("[SERVER] Available connection addresses:");
+        console.log(`[SERVER]   Local:     ws://127.0.0.1:${config.PORT}`);
+        getTailscaleIp((tsIp) => {
+            if (tsIp) {
+                console.log(`[SERVER]   Tailscale: ws://${tsIp}:${config.PORT}  <- use this address on remote/mobile clients`);
+            } else {
+                console.log("[SERVER]   Tailscale: not running — mobile clients must use the LAN IP instead");
+            }
+        });
     });
 
     wss.on("connection", (ws) => {

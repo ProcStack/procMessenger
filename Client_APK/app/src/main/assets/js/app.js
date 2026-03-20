@@ -33,11 +33,13 @@ document.addEventListener("DOMContentLoaded", () => {
     updateDynamicPanel();
     updateConnectionButtons("disconnected");
 
-    // Auto-connect if we have saved settings
-    const savedIp = localStorage.getItem("serverIp") || CONFIG.SERVER_IP;
-    const savedPort = localStorage.getItem("serverPort") || CONFIG.PORT;
-    document.getElementById("serverIp").value = savedIp;
-    document.getElementById("serverPort").value = savedPort;
+    // Restore saved settings (or fall back to config defaults)
+    document.getElementById("serverLanIp").value =
+        localStorage.getItem("serverLanIp") || CONFIG.LAN_IP;
+    document.getElementById("serverTailscaleIp").value =
+        localStorage.getItem("serverTailscaleIp") || CONFIG.TAILSCALE_IP;
+    document.getElementById("serverPort").value =
+        localStorage.getItem("serverPort") || CONFIG.PORT;
 });
 
 function setupEventListeners() {
@@ -50,16 +52,17 @@ function setupEventListeners() {
 // --- Connection ---
 
 function handleConnect() {
-    const ip = document.getElementById("serverIp").value.trim();
+    const lanIp = document.getElementById("serverLanIp").value.trim();
+    const tailscaleIp = document.getElementById("serverTailscaleIp").value.trim();
     const port = parseInt(document.getElementById("serverPort").value.trim(), 10);
 
-    if (!ip || !port) {
-        setStatus("error", "Please enter a valid IP and port.");
+    if (!lanIp || !port) {
+        setStatus("error", "Please enter a valid LAN IP and port.");
         return;
     }
 
     wsManager = new WebSocketManager(onMessage, setStatus, onClientListUpdate);
-    wsManager.connect(ip, port);
+    wsManager.connect(lanIp, tailscaleIp, port);
 }
 
 function handleDisconnect() {
@@ -84,11 +87,13 @@ function setStatus(state, text) {
     el.className = "status " + state;
     updateConnectionButtons(state);
 
-    // Persist server address only after a successful connection
+    // Persist server addresses after a successful connection
     if (state === "connected") {
-        const ip = document.getElementById("serverIp").value.trim();
+        const lanIp = document.getElementById("serverLanIp").value.trim();
+        const tailscaleIp = document.getElementById("serverTailscaleIp").value.trim();
         const port = document.getElementById("serverPort").value.trim();
-        if (ip) localStorage.setItem("serverIp", ip);
+        if (lanIp) localStorage.setItem("serverLanIp", lanIp);
+        localStorage.setItem("serverTailscaleIp", tailscaleIp);
         if (port) localStorage.setItem("serverPort", port);
     }
 }

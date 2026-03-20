@@ -11,9 +11,21 @@ import uuid
 import logging
 from datetime import datetime, timezone
 
+import os
+import sys
+
 import websockets
 
 import config
+
+# Import Tailscale utility from workspace root (one level up)
+_workspace_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _workspace_root not in sys.path:
+    sys.path.insert(0, _workspace_root)
+try:
+    import tailscale_vpn as _tailscale
+except ImportError:
+    _tailscale = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -230,6 +242,12 @@ async def start_server():
         ping_timeout=config.PING_TIMEOUT,
     ):
         logger.info("Server is running. Press Ctrl+C to stop.")
+        logger.info("Available connection addresses:")
+        if _tailscale is not None:
+            _tailscale.log_connection_info(config.PORT, logger)
+        else:
+            logger.info(f"  Local:     ws://127.0.0.1:{config.PORT}")
+            logger.info("  Tailscale: unavailable (tailscale_vpn.py not found)")
         await asyncio.Future()  # Run forever
 
 
