@@ -1,15 +1,14 @@
 # procMessenger
-## Local Network Messaging; PC <> Phone
-### With local LLM Chat access available
+### Local Network Messaging; PC <> Phone
+#### With local/API LLM Chat access
+
+<p align='center'>
+  <img src="Images/procMessenger_icon_512_padding_alpha.png" alt="procMessenger top image" />
+</p>
 
 Send commands from your phone to your computers over the local network.
 
-A standardized JSON/WebSocket protocol routes messages between an Android app and any number of PC clients running Python or Node.js.
-
-<p align=center>
-  <img src="Client_APK/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" alt="procMessenger App Icon" />
-</p>
-
+There is a standardized JSON/WebSocket `protocol.md` file; showing message routes between the Android app and any number of services running through Python or Node.js.
 
 ---
 
@@ -92,6 +91,23 @@ See [Protocol.md](Protocol.md) for the full specification, message formats, flag
 ---
 
 ### Quick Start
+
+#### Mobile -
+<p align='center'>
+  <img src="Client_APK/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" alt="procMessenger App Icon" />
+  <br/>procMessenger Icon
+</p>
+
+In `./Client_APK` you'll find an apk in the root of the directory.  I haven't submitted it to any playstores yet, so you'll need to manually install it.
+
+All of the code is right there, if you want to re-build the APK for yourself, open the `Client_APK` folder in `Android Studio` and --
+<br/>Click the 4 lines in the upper left, it'll show the rest of the top menu ... Why did they need to do that?
+<br/>Go to - `Build > Build App Bundle(s) / APK(s) > Build APK(s)`
+
+Once built, it'll be in the `debug` folder (Unless you build a signed APK, then it will be in `release`)
+<br/>`./Client_APK/app/build/outputs/apk/debug/app-debug.apk`
+
+#### Computer -
 
 **1. Start the server** (pick Python or Node.js):
 
