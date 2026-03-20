@@ -1,5 +1,5 @@
 /**
- * procMessenger — Node.js WebSocket Server
+ * procMessenger - Node.js WebSocket Server
  *
  * Handles client registration, message routing, and client registry.
  * This file contains ONLY server logic. Runtime/message handling is in handlers.js.
@@ -271,7 +271,7 @@ function routeMessage(ws, raw) {
     }
 
     // Mobile requesting a file from a specific owner client.
-    // The server acts as a relay — forward to the ownerClient, which will send file_transfer_data
+    // The server acts as a relay - forward to the ownerClient, which will send file_transfer_data
     // chunks back with target = original requester (mobile).
     if (type === "file_fetch" && target === "server") {
         const ownerClient = payload.ownerClient || "";
@@ -357,7 +357,7 @@ function startServer() {
             if (tsIp) {
                 console.log(`[SERVER]   Tailscale: ws://${tsIp}:${config.PORT}  <- use this address on remote/mobile clients`);
             } else {
-                console.log("[SERVER]   Tailscale: not running — mobile clients must use the LAN IP instead");
+                console.log("[SERVER]   Tailscale: not running - mobile clients must use the LAN IP instead");
             }
         });
     });

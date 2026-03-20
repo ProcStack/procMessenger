@@ -14,13 +14,13 @@ module.exports = {
     // Directory containing scripts that can be executed via "run_script"
     SCRIPTS_DIR: "./scripts",
 
-    // Shared transfers directory — both Node.js and Python servers read/write here.
+    // Shared transfers directory - both Node.js and Python servers read/write here.
     // Resolved relative to the project root (two levels up from Server_Nodejs/).
     TRANSFERS_DIR: path.resolve(__dirname, "../transfers"),
 
     // Ping interval in milliseconds (keepalive)
     PING_INTERVAL: 30000,
 
-    // Ping timeout — disconnect if no pong within this many ms
+    // Ping timeout - disconnect if no pong within this many ms
     PING_TIMEOUT: 10000,
 };

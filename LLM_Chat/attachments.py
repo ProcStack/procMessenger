@@ -1,5 +1,5 @@
 """
-procMessenger — Attachment Handler
+procMessenger - Attachment Handler
 
 Handles receiving chunked file transfers over WebSocket and saving them to disk.
 Also handles preparing files for sending (chunking outbound).
@@ -96,7 +96,7 @@ def receive_chunk(payload):
     if file_size > config.MAX_ATTACHMENT_SIZE:
         return {"error": f"File too large: {file_size} bytes (max {config.MAX_ATTACHMENT_SIZE} bytes)."}
 
-    # Sanitize filename — prevent path traversal
+    # Sanitize filename - prevent path traversal
     safe_filename = os.path.basename(filename)
     if not safe_filename or safe_filename.startswith("."):
         return {"error": "Invalid filename."}

@@ -1,8 +1,8 @@
 /**
- * procMessenger Mobile — Main Application Logic
+ * procMessenger Mobile - Main Application Logic
  *
  * Handles UI interactions, dynamic panels, message tabs, and client management.
- * No framework — vanilla JS.
+ * No framework - vanilla JS.
  */
 
 // --- State ---
@@ -26,7 +26,7 @@ let selectedTopicIds = new Set();  // Set of IDs of selected topics
 
 // --- branchShredder State ---
 let bsRecentScenes = [];           // From system → recent_scenes response
-let bsNodeIndex = [];              // From find_nodes response — lightweight node list
+let bsNodeIndex = [];              // From find_nodes response - lightweight node list
 
 // --- File Browser State ---
 let fbFileList = [];               // Aggregated file list from server
@@ -586,7 +586,7 @@ function updateModelDropdown() {
     modelSelect.innerHTML = "";
 
     if (models.length === 0) {
-        // No models discovered yet — show default from config
+        // No models discovered yet - show default from config
         if (defaultModel) {
             const opt = document.createElement("option");
             opt.value = defaultModel;
@@ -832,7 +832,7 @@ function onMessage(msg) {
         if (payload.status === "complete") {
             addMessageToTab(source, "in", type, `Attachment saved: ${payload.filename} (${formatBytes(payload.fileSize)})`);
         } else if (payload.status === "receiving") {
-            // Progress — silent
+            // Progress - silent
         }
         return;
     }
@@ -942,7 +942,7 @@ function onMessage(msg) {
 
     if (type === "system") {
         const results = payload.results || {};
-        // Update recent scenes list if present — code returns { status, scenes: [...] }
+        // Update recent scenes list if present - code returns { status, scenes: [...] }
         const rsResult = results.recent_scenes;
         if (rsResult && rsResult.scenes && Array.isArray(rsResult.scenes)) {
             bsRecentScenes = rsResult.scenes;
@@ -972,7 +972,7 @@ function onMessage(msg) {
 
     // --- Standard message handling ---
 
-    // Handle script list responses — update the dropdown
+    // Handle script list responses - update the dropdown
     if (type === "run_script" && payload.action === "script_list") {
         const select = document.getElementById("scriptSelect");
         if (select) {
@@ -980,7 +980,7 @@ function onMessage(msg) {
             (payload.scripts || []).forEach((s) => {
                 const opt = document.createElement("option");
                 opt.value = s.name;
-                opt.textContent = `${s.name} — ${s.description}`;
+                opt.textContent = `${s.name} - ${s.description}`;
                 select.appendChild(opt);
             });
             if ((payload.scripts || []).length === 0) {
@@ -1481,7 +1481,7 @@ function renderFileBrowserPanel(panel) {
             </div>
             <div id="fbFileList" class="fb-file-list">
                 ${fbFileList.length === 0
-                    ? '<div class="empty-list">No files — tap Refresh to load</div>'
+                    ? '<div class="empty-list">No files - tap Refresh to load</div>'
                     : fbFileList.map(fbRenderFileItem).join("")}
             </div>
         </div>
@@ -1568,7 +1568,7 @@ function fbReceiveChunk(payload) {
             fileName, fileType, fileSize, sentAt, source, target } = payload;
 
     if (!fbInFlight[fileId]) {
-        // Chunk arrived without a prior request — start tracking (edge case)
+        // Chunk arrived without a prior request - start tracking (edge case)
         fbInFlight[fileId] = { mode: "view", received: 0, totalChunks, chunks: {} };
     }
 
@@ -1585,7 +1585,7 @@ function fbReceiveChunk(payload) {
 
     if (tracker.received < totalChunks) return;
 
-    // All chunks received — reassemble
+    // All chunks received - reassemble
     const ordered = [];
     for (let i = 0; i < totalChunks; i++) {
         ordered.push(tracker.chunks[i] || "");
@@ -1647,7 +1647,7 @@ function closeFileViewerModal() {
     if (dlBtn) { dlBtn.dataset.b64 = ""; dlBtn.dataset.name = ""; dlBtn.dataset.type = ""; }
 }
 
-/** Trigger a browser download of the base64 data — saves to phone storage. */
+/** Trigger a browser download of the base64 data - saves to phone storage. */
 function fbDownloadFile(base64Data, fileName, fileType) {
     try {
         // Decode base64 → Uint8Array

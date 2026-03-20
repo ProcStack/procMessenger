@@ -1,7 +1,7 @@
-// procMessenger Mobile — Configuration
+// procMessenger Mobile - Configuration
 
 const CONFIG = {
-    // Default server IP — used when no recent connections exist
+    // Default server IP - used when no recent connections exist
     DEFAULT_IP: "192.168.1.100",
 
     PORT: 9734,

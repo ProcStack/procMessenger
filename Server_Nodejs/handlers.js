@@ -1,5 +1,5 @@
 /**
- * procMessenger — Node.js Message Handlers
+ * procMessenger - Node.js Message Handlers
  *
  * Runtime functionality for handling incoming messages.
  * Imported by client.js to process messages received from the server.
@@ -74,7 +74,7 @@ function receiveFileChunk(payload) {
         source, target, sentAt,
     } = payload;
 
-    // Security: sanitise filename — strip directory components
+    // Security: sanitise filename - strip directory components
     const safeName = path.basename(fileName).replace(/[^\w.\- ]/g, "_");
 
     // Chunk temp directory
@@ -232,7 +232,7 @@ async function handleRunScript(payload) {
 
 /**
  * Handle a gather_research message.
- * Placeholder — requires Puppeteer + Search API + local LLM integration.
+ * Placeholder - requires Puppeteer + Search API + local LLM integration.
  */
 async function handleGatherResearch(payload) {
     const query = payload.query || "";
@@ -260,7 +260,7 @@ function handleEditStory(payload) {
 }
 
 /**
- * Handle file_list request — return the aggregated metadata for files stored here.
+ * Handle file_list request - return the aggregated metadata for files stored here.
  */
 function handleFileList() {
     return { files: getFileList() };
@@ -277,7 +277,7 @@ function handleFileReceive(payload) {
             payload: { fileId: payload.fileId, chunkIndex: payload.chunkIndex, totalChunks: payload.totalChunks },
         };
     }
-    console.log(`[TRANSFER] Saved: ${result.record.fileId} — ${result.record.fileName}`);
+    console.log(`[TRANSFER] Saved: ${result.record.fileId} - ${result.record.fileName}`);
     return {
         type: "file_receive_complete",
         payload: {
@@ -293,7 +293,7 @@ function handleFileReceive(payload) {
 }
 
 /**
- * Handle a file_fetch request — send the file back in chunks.
+ * Handle a file_fetch request - send the file back in chunks.
  * Returns an array of messages to send.
  */
 function handleFileFetch(payload) {
@@ -322,7 +322,7 @@ function handleFileFetch(payload) {
 }
 
 /**
- * Main dispatcher — routes a parsed message to the appropriate handler.
+ * Main dispatcher - routes a parsed message to the appropriate handler.
  * Returns [responseType, responsePayload] or [null, null].
  * For file_fetch, returns an array of [type, payload] pairs.
  */
@@ -352,7 +352,7 @@ async function handleMessage(msg) {
     }
 
     if (type === "file_fetch") {
-        // Returns multiple messages — caller checks for array
+        // Returns multiple messages - caller checks for array
         return ["__multi__", handleFileFetch(payload)];
     }
 

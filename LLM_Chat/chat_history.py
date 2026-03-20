@@ -1,5 +1,5 @@
 """
-procMessenger — Chat History Manager
+procMessenger - Chat History Manager
 
 Persists chat conversations to disk as JSON files.
 Each chat is a separate file in the chat_history/ directory.
@@ -150,7 +150,7 @@ def extract_images(content):
     Extract Markdown image references from message content.
     Returns list of {"alt": str, "url": str}.
 
-    Placeholder for future expansion — currently just parses Markdown syntax.
+    Placeholder for future expansion - currently just parses Markdown syntax.
     """
     pattern = r'!\[([^\]]*)\]\(([^)]+)\)'
     return [{"alt": m[0], "url": m[1]} for m in re.findall(pattern, content)]
@@ -161,7 +161,7 @@ def extract_links(content):
     Extract Markdown link references from message content.
     Returns list of {"text": str, "url": str}.
 
-    Placeholder for future expansion — currently just parses Markdown syntax.
+    Placeholder for future expansion - currently just parses Markdown syntax.
     """
     # Match [text](url) but not ![text](url) (images)
     pattern = r'(?<!!)\[([^\]]+)\]\(([^)]+)\)'

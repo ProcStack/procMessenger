@@ -23,7 +23,7 @@ LLM_PROVIDERS = {
         "api_base": os.getenv("LLAMA_API_BASE", "http://127.0.0.1:8080"),
         "model": os.getenv("LLAMA_MODEL", "default"),
         "api_key": os.getenv("LLAMA_API_KEY", ""),  # Some local servers require a key
-        "enabled": True,  # Always enabled — local model
+        "enabled": True,  # Always enabled - local model
     },
     "claude": {
         "label": "Claude (Anthropic)",

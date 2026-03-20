@@ -1,5 +1,5 @@
 """
-procMessenger — Python Client
+procMessenger - Python Client
 
 Connects to the procMessenger WebSocket server.
 If no server is running, starts one automatically, then connects as a client.
@@ -86,14 +86,14 @@ async def client_loop():
     if not is_server_running():
         server_proc = await start_server_background()
         if server_proc is None:
-            logger.error("Cannot connect — server failed to start. Exiting.")
+            logger.error("Cannot connect - server failed to start. Exiting.")
             return
 
     logger.info(f"Connecting to {uri} as '{config.CLIENT_NAME}'...")
 
     try:
         async with websockets.connect(uri) as ws:
-            # Register with the server — include local file list for immediate aggregation
+            # Register with the server - include local file list for immediate aggregation
             reg_msg = build_message("register", config.CLIENT_NAME, "server", {
                 "clientType": "python",
                 "capabilities": config.CAPABILITIES,
@@ -140,13 +140,13 @@ async def client_loop():
 
                 if msg_type == "error":
                     err_payload = msg.get("payload", {})
-                    logger.warning(f"Error from server: {err_payload.get('code')} — {err_payload.get('message')}")
+                    logger.warning(f"Error from server: {err_payload.get('code')} - {err_payload.get('message')}")
                     if err_payload.get("code") == "DUPLICATE_CLIENT":
-                        logger.error("Duplicate client — this hostname already has a client of this type connected. Exiting.")
+                        logger.error("Duplicate client - this hostname already has a client of this type connected. Exiting.")
                         sys.exit(1)
                     continue
 
-                # The server forwarded a file_fetch request from mobile — stream chunks back.
+                # The server forwarded a file_fetch request from mobile - stream chunks back.
                 if msg_type == "file_fetch":
                     requested_by = payload.get("requestedBy", source)
                     response_type, response_payload = handle_message(msg)
@@ -199,7 +199,7 @@ async def client_loop():
 
     except websockets.ConnectionClosed as e:
         if e.code == 4001:
-            logger.error("Duplicate client — this hostname already has a client of this type connected. Exiting.")
+            logger.error("Duplicate client - this hostname already has a client of this type connected. Exiting.")
             sys.exit(1)
         logger.info(f"Connection closed (code={e.code}). Reconnecting in 5s...")
         await asyncio.sleep(5)
@@ -290,7 +290,7 @@ async def client_loop():
     if not is_server_running():
         server_proc = await start_server_background()
         if server_proc is None:
-            logger.error("Cannot connect — server failed to start. Exiting.")
+            logger.error("Cannot connect - server failed to start. Exiting.")
             return
 
     logger.info(f"Connecting to {uri} as '{config.CLIENT_NAME}'...")
@@ -342,7 +342,7 @@ async def client_loop():
 
                 if msg_type == "error":
                     payload = msg.get("payload", {})
-                    logger.warning(f"Error from server: {payload.get('code')} — {payload.get('message')}")
+                    logger.warning(f"Error from server: {payload.get('code')} - {payload.get('message')}")
                     continue
 
                 # Handle actionable messages
@@ -360,7 +360,7 @@ async def client_loop():
 
     except websockets.ConnectionClosed as e:
         if e.code == 4001:
-            logger.error("Duplicate client — this hostname already has a client of this type connected. Exiting.")
+            logger.error("Duplicate client - this hostname already has a client of this type connected. Exiting.")
             sys.exit(1)
         logger.info(f"Connection closed (code={e.code}). Reconnecting in 5s...")
         await asyncio.sleep(5)

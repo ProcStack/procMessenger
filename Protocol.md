@@ -104,7 +104,7 @@ Request a connected computer to execute a known script.
 }
 ```
 
-**Response — Script List** (computer → mobile):
+**Response - Script List** (computer → mobile):
 ```json
 {
   "type": "run_script",
@@ -119,7 +119,7 @@ Request a connected computer to execute a known script.
 }
 ```
 
-**Response — Execution Result** (computer → mobile):
+**Response - Execution Result** (computer → mobile):
 ```json
 {
   "type": "run_script",
@@ -150,7 +150,7 @@ Request a computer to perform web research using a local LLM + Search API + Pupp
 }
 ```
 
-**Response — Progress** (computer → mobile):
+**Response - Progress** (computer → mobile):
 ```json
 {
   "type": "gather_research",
@@ -162,7 +162,7 @@ Request a computer to perform web research using a local LLM + Search API + Pupp
 }
 ```
 
-**Response — Complete** (computer → mobile):
+**Response - Complete** (computer → mobile):
 ```json
 {
   "type": "gather_research",
@@ -306,10 +306,10 @@ are optional, `nodeContext` is available for pre-built context blocks, and `mode
 | `message`     | yes      | The user prompt |
 | `provider`    | no       | Provider key (e.g. `"claude"`). Ignored if `model` is in `"provider:model"` format |
 | `model`       | no       | Model id, or `"provider:model_name"` combined shorthand |
-| `mode`        | no       | Processing mode (e.g. `"ask"`, `"agent"`) — app-defined |
+| `mode`        | no       | Processing mode (e.g. `"ask"`, `"agent"`) - app-defined |
 | `nodeContext` | no       | Pre-built context block to prepend to the prompt (e.g. from `query_nodes`) |
 
-**Response — Thinking** (llm-chat → mobile):
+**Response - Thinking** (llm-chat → mobile):
 ```json
 {
   "type": "llm_chat",
@@ -322,7 +322,7 @@ are optional, `nodeContext` is available for pre-built context blocks, and `mode
 }
 ```
 
-**Response — Complete** (llm-chat → mobile):
+**Response - Complete** (llm-chat → mobile):
 ```json
 {
   "type": "llm_chat",
@@ -499,7 +499,7 @@ Streams to disk. Sends a `downloading` status immediately, then a `complete` or 
 }
 ```
 
-**Response — Downloading** (llm-chat → mobile):
+**Response - Downloading** (llm-chat → mobile):
 ```json
 {
   "type": "llm_model_download",
@@ -512,7 +512,7 @@ Streams to disk. Sends a `downloading` status immediately, then a `complete` or 
 }
 ```
 
-**Response — Complete** (llm-chat → mobile):
+**Response - Complete** (llm-chat → mobile):
 ```json
 {
   "type": "llm_model_download",
@@ -531,7 +531,7 @@ Streams to disk. Sends a `downloading` status immediately, then a `complete` or 
 ## Application Extension Message Types
 
 These message types are generic extension points that any capable application client may implement.
-They carry no assumption about which program services them — the `target` field routes each request
+They carry no assumption about which program services them - the `target` field routes each request
 to whichever registered client advertises the matching capability.
 
 When **branchShredder** is connected with `PROC_MESSENGER_ENABLED=true` it registers with the
@@ -580,7 +580,7 @@ branchShredder returns `Info` and `Character` nodes from the currently-loaded pr
       {
         "name": "Mira Ashford",
         "type": "Character",
-        "content": "## Mira Ashford — Rogue Artificer\n\nAge: 28…",
+        "content": "## Mira Ashford - Rogue Artificer\n\nAge: 28…",
         "stageNotes": "",
         "scenePath": "Root",
         "nodePaths": ["Mira Ashford  (no upstream connections)"],
@@ -598,7 +598,7 @@ If no data is available the response contains `"nodes": []` and an `"error"` fie
 ### `system_prompt`
 Request the system prompt from any application that registers the `system_prompt` capability.
 `fullSystemPrompt` is always present and ready to use.  The optional `parts` object exposes
-named components so callers can reuse individual pieces — its keys are app-defined.
+named components so callers can reuse individual pieces - its keys are app-defined.
 branchShredder populates `parts` with `appPrompt`, `scriptingPrompt`, and `projectContext`.
 
 **Request** (any client → capable app):
@@ -629,13 +629,13 @@ branchShredder populates `parts` with `appPrompt`, `scriptingPrompt`, and `proje
 | Field             | Description |
 |-------------------|-------------|
 | `fullSystemPrompt`| The complete system prompt, ready to pass directly to an LLM |
-| `parts`           | Optional — named sub-components; keys and values are app-defined |
+| `parts`           | Optional - named sub-components; keys and values are app-defined |
 
 ---
 
 ### `find_nodes`
 Request a lightweight node index from any application that registers the `find_nodes` capability.
-Returns nodes keyed by ID — suitable for building a picker list before fetching full content with `get_node`.
+Returns nodes keyed by ID - suitable for building a picker list before fetching full content with `get_node`.
 Unlike `query_nodes`, content fields are omitted to keep the response small.
 
 **Request** (any client → capable app):
@@ -709,7 +709,7 @@ On failure: `{ "error": "Node '…' not found" }`.
 ---
 
 ### `update_node`
-Write edited content or a new name back into the live scene.  Both fields are optional — omit either to leave it unchanged.
+Write edited content or a new name back into the live scene.  Both fields are optional - omit either to leave it unchanged.
 
 **Request** (any client → capable app):
 ```json
@@ -754,7 +754,7 @@ branchShredder supports the following actions:
 | `new_scene`    | Discard the current project and create a fresh empty one |
 | `save_scene`   | Save the current project; provide `filename` to set the name (new projects are saved to `projects/`) |
 
-**Request — single action** (any client → capable app):
+**Request - single action** (any client → capable app):
 ```json
 {
   "type": "system",
@@ -763,7 +763,7 @@ branchShredder supports the following actions:
 }
 ```
 
-**Request — batched actions**:
+**Request - batched actions**:
 ```json
 {
   "type": "system",
@@ -772,7 +772,7 @@ branchShredder supports the following actions:
 }
 ```
 
-**Request — open_recent**:
+**Request - open_recent**:
 ```json
 {
   "type": "system",
@@ -781,7 +781,7 @@ branchShredder supports the following actions:
 }
 ```
 
-**Request — save_scene (new file)**:
+**Request - save_scene (new file)**:
 ```json
 {
   "type": "system",
@@ -909,7 +909,7 @@ Sent by server or client when something goes wrong.
 
 The file transfer system lets any client browse files held by other clients and download them on demand.
 Files are stored permanently in the shared `transfers/` folder at the project root (accessible by both
-Node.js and Python servers). The mobile app never caches files locally — data is streamed on demand and
+Node.js and Python servers). The mobile app never caches files locally - data is streamed on demand and
 held only in memory until dismissed or explicitly downloaded to the phone.
 
 ### Architecture
@@ -1003,7 +1003,7 @@ connected clients.
 ---
 
 ### `file_list`
-**Request** — ask the server for the aggregated list of all files held by all connected clients.
+**Request** - ask the server for the aggregated list of all files held by all connected clients.
 
 ```json
 {
@@ -1014,7 +1014,7 @@ connected clients.
 }
 ```
 
-**Response / Broadcast** — server sends this to the requester (or broadcasts to all when triggered by
+**Response / Broadcast** - server sends this to the requester (or broadcasts to all when triggered by
 a `file_list_announce` or a client disconnect).
 
 ```json
@@ -1043,7 +1043,7 @@ server during aggregation.
 ---
 
 ### `file_fetch`
-**Request** (mobile → server) — ask the server to stream a file from its owning client.
+**Request** (mobile → server) - ask the server to stream a file from its owning client.
 
 ```json
 {
@@ -1107,7 +1107,7 @@ Sent by the owning client to the requesting client (relayed via the server), one
 | `data` | Base64-encoded binary data for this chunk |
 
 The receiver reassembles chunks in order. When `chunkIndex === totalChunks - 1` (last chunk), the
-file is complete. The mobile app holds the reassembled data only in JavaScript memory — it is never
+file is complete. The mobile app holds the reassembled data only in JavaScript memory - it is never
 written to device storage unless the user explicitly taps the ⬇ Download button.
 
 ---
@@ -1183,13 +1183,13 @@ Optional flags can be included in any message to modify behavior.
 
 | Flag             | Type    | Default | Description |
 |------------------|---------|---------|-------------|
-| `priority`       | string  | `"normal"` | `"low"`, `"normal"`, `"high"` — hint for client processing order |
+| `priority`       | string  | `"normal"` | `"low"`, `"normal"`, `"high"` - hint for client processing order |
 | `ack`            | boolean | `false` | Request delivery acknowledgment from the server |
 | `silent`         | boolean | `false` | Suppress UI notification on the receiving client |
 | `ttl`            | number  | `0`     | Time-to-live in seconds. `0` = no expiry. Server discards if expired before delivery. |
 | `correlationId`  | string  | `""`    | Links a response to its original request `id` |
 | `broadcast`      | boolean | `false` | When `true`, server sends to all clients (overrides `target`) |
-| `encrypted`      | boolean | `false` | Reserved — indicates payload is encrypted (future use) |
+| `encrypted`      | boolean | `false` | Reserved - indicates payload is encrypted (future use) |
 
 ### Flag Example
 

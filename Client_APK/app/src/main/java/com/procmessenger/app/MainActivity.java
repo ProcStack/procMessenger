@@ -11,7 +11,7 @@ import android.util.Log;
 import androidx.appcompat.app.AppCompatActivity;
 
 /**
- * MainActivity — Thin WebView wrapper for the procMessenger mobile UI.
+ * MainActivity - Thin WebView wrapper for the procMessenger mobile UI.
  *
  * All UI logic lives in the HTML/CSS/JS assets.
  * This class only sets up the WebView with the necessary permissions.

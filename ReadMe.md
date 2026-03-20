@@ -97,7 +97,7 @@ procMessenger/
 
 ### Message Types
 
-**Core — PC Clients**
+**Core - PC Clients**
 
 | Type              | Direction    | Description |
 |-------------------|--------------|-------------|
@@ -108,7 +108,7 @@ procMessenger/
 | `file_fetch`      | Mobile → PC  | Request a file from a target computer |
 | `file_receive`    | PC → Mobile  | Deliver file chunks back to mobile |
 
-**LLM Chat — `LLM_Chat` service**
+**LLM Chat - `LLM_Chat` service**
 
 | Type                | Direction          | Description |
 |---------------------|--------------------|-------------|
@@ -122,7 +122,7 @@ procMessenger/
 | `llm_local_models`  | Mobile ↔ LLM Chat  | Scan/list local GGUF model files |
 | `llm_model_download`| Mobile → LLM Chat  | Download a remote model |
 
-**Application Extensions — e.g. branchShredder**
+**Application Extensions - e.g. branchShredder**
 
 | Type            | Direction    | Description |
 |-----------------|--------------|-------------|

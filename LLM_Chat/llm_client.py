@@ -1,5 +1,5 @@
 """
-procMessenger — LLM Chat Client
+procMessenger - LLM Chat Client
 
 Connects to the procMessenger WebSocket server and provides LLM chat functionality.
 Announces itself with available LLM providers and modes on join.
@@ -215,7 +215,7 @@ async def handle_llm_message(ws, msg):
             response_text = await chat_completion(provider, llm_messages, mode=mode, model=model, injected_prompt=injected_prompt)
         except Exception as e:
             logger.error(f"LLM completion error: {e}")
-            response_text = f"Error: LLM completion failed — {e}"
+            response_text = f"Error: LLM completion failed - {e}"
 
         # Save assistant response
         response_meta = {
@@ -408,7 +408,7 @@ async def client_loop():
 
     except websockets.ConnectionClosed as e:
         if e.code == 4001:
-            logger.error("Duplicate client — this hostname already has an LLM client connected. Exiting.")
+            logger.error("Duplicate client - this hostname already has an LLM client connected. Exiting.")
             sys.exit(1)
         logger.info(f"Connection closed (code={e.code}). Reconnecting in 5s...")
         await asyncio.sleep(5)

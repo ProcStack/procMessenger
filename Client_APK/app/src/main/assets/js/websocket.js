@@ -1,8 +1,8 @@
 /**
- * procMessenger Mobile — WebSocket Manager
+ * procMessenger Mobile - WebSocket Manager
  *
  * Handles connection lifecycle, registration, message sending/receiving.
- * Connects directly to the provided IP (LAN or Tailscale — treated the same).
+ * Connects directly to the provided IP (LAN or Tailscale - treated the same).
  */
 
 class WebSocketManager {
@@ -51,7 +51,7 @@ class WebSocketManager {
      */
     send(type, target, payload, flags = {}) {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.warn("Cannot send — not connected.");
+            console.warn("Cannot send - not connected.");
             return false;
         }
 

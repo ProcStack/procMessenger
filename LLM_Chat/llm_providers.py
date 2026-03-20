@@ -1,5 +1,5 @@
 """
-procMessenger — LLM Provider Interface
+procMessenger - LLM Provider Interface
 
 Handles communication with different LLM backends (Llama local, Claude, OpenAI).
 All providers use an OpenAI-compatible chat completions API where possible.
@@ -18,7 +18,7 @@ logger = logging.getLogger("procMessenger.llm.providers")
 # --- In-process model cache ---
 # Holds the currently loaded llama-cpp-python Llama instance and its file path.
 _loaded_model = None       # llama_cpp.Llama instance
-_loaded_model_path = None  # str — file path of the loaded model
+_loaded_model_path = None  # str - file path of the loaded model
 
 try:
     from llama_cpp import Llama as _LlamaCpp
@@ -26,7 +26,7 @@ try:
 except ImportError:
     _LlamaCpp = None
     LLAMA_CPP_AVAILABLE = False
-    logger.info("llama-cpp-python not installed — local in-process inference unavailable.")
+    logger.info("llama-cpp-python not installed - local in-process inference unavailable.")
 
 
 def get_system_prompt():
@@ -66,7 +66,7 @@ async def fetch_all_models():
             if key == "claude":
                 results[key] = await _fetch_anthropic_models(prov)
             elif key == "llama":
-                # Llama server may not be running — that's fine, local files suffice
+                # Llama server may not be running - that's fine, local files suffice
                 results[key] = await _fetch_openai_compatible_models(prov, quiet=True)
             else:
                 results[key] = await _fetch_openai_compatible_models(prov)
@@ -109,7 +109,7 @@ async def _fetch_openai_compatible_models(prov, quiet=False):
                 data = await resp.json()
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
         if quiet:
-            logger.info(f"No API server reachable for {prov['label']} — using local models only.")
+            logger.info(f"No API server reachable for {prov['label']} - using local models only.")
             return []
         raise
 
@@ -191,9 +191,9 @@ async def chat_completion(provider_key, messages, mode="ask", model=None, inject
 
     # Append mode-specific instruction
     mode_suffix = {
-        "ask": "\n\nYou are in Ask mode. Respond directly to the user's question.",
+        "ask": "\n\nYou are in Ask mode. Respond to the user's question.",
         "agent": "\n\nYou are in Agent mode. You may describe actions to take and incorporate tool outputs.",
-        "plan": "\n\nYou are in Plan mode. Break down the request into numbered steps before responding.",
+        "plan": "\n\nYou are in Plan mode. Break down the request into numbered steps before responding, try to find inconsistencies or gaps in data to advise the user.",
     }
     system_prompt += mode_suffix.get(mode, "")
 
@@ -207,7 +207,7 @@ async def chat_completion(provider_key, messages, mode="ask", model=None, inject
         if local_path:
             return await _local_llama_completion(local_path, system_prompt, messages)
 
-        # 2) No local file matched — try the HTTP API server
+        # 2) No local file matched - try the HTTP API server
         result = await _openai_compatible_completion(prov, system_prompt, messages, effective_model)
 
         # 3) If the HTTP call failed with a connection error, fall back to
@@ -217,7 +217,7 @@ async def chat_completion(provider_key, messages, mode="ask", model=None, inject
             if local_models:
                 fallback = local_models[0]
                 logger.info(
-                    f"HTTP API unreachable — falling back to local model: {fallback['id']}"
+                    f"HTTP API unreachable - falling back to local model: {fallback['id']}"
                 )
                 return await _local_llama_completion(
                     fallback["path"], system_prompt, messages
@@ -387,7 +387,7 @@ async def _local_llama_completion(model_path, system_prompt, messages):
         return await asyncio.get_event_loop().run_in_executor(None, _run)
     except Exception as e:
         logger.error(f"Local inference error: {e}")
-        return f"Error: Local inference failed — {e}"
+        return f"Error: Local inference failed - {e}"
 
 # ---------------------------------------------------------------------------
 # Local model file scanning & download

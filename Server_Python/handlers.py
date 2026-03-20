@@ -1,5 +1,5 @@
 """
-procMessenger — Python Message Handlers
+procMessenger - Python Message Handlers
 
 Runtime functionality for handling incoming messages.
 This file is imported by client.py to process messages received from the server.
@@ -279,7 +279,7 @@ def handle_run_script(payload):
 def handle_edit_story(payload):
     """
     Handle an edit_story message.
-    This is a passthrough — the message content is forwarded to the story editor.
+    This is a passthrough - the message content is forwarded to the story editor.
     Override this function to integrate with your story editor program.
     """
     message = payload.get("message", "")
@@ -306,7 +306,7 @@ def handle_file_receive(payload):
             "chunkIndex": payload.get("chunkIndex"),
             "totalChunks": payload.get("totalChunks"),
         }
-    logger.info(f"[TRANSFER] Saved: {record['fileId']} — {record['fileName']}")
+    logger.info(f"[TRANSFER] Saved: {record['fileId']} - {record['fileName']}")
     return "file_receive_complete", {
         "fileId": record["fileId"],
         "fileName": record["fileName"],
@@ -350,7 +350,7 @@ def handle_file_fetch(payload):
 
 def handle_message(msg):
     """
-    Main dispatcher — routes a parsed message to the appropriate handler.
+    Main dispatcher - routes a parsed message to the appropriate handler.
     Returns a response payload, or None if no response is needed.
     For file_fetch returns ("__multi__", list_of_(type, payload)).
     """

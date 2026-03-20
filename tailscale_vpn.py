@@ -1,5 +1,5 @@
 """
-tailscale_vpn.py — Tailscale utility for procMessenger
+tailscale_vpn.py - Tailscale utility for procMessenger
 
 Detects whether Tailscale is active on this machine and retrieves the
 assigned Tailscale IP address (100.64.0.0/10 range).
@@ -97,7 +97,7 @@ def log_connection_info(port: int, log: logging.Logger | None = None) -> None:
     if ts_ip:
         log.info(f"  Tailscale: ws://{ts_ip}:{port}  ← use this address on remote/mobile clients")
     else:
-        log.info("  Tailscale: not running — mobile clients must use the LAN IP instead")
+        log.info("  Tailscale: not running - mobile clients must use the LAN IP instead")
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 """
-procMessenger — Python WebSocket Server
+procMessenger - Python WebSocket Server
 
 Handles client registration, message routing, and client registry.
 This file contains ONLY server logic. Runtime/message handling is in handlers.py.

@@ -1,5 +1,5 @@
 /**
- * procMessenger — Node.js Client
+ * procMessenger - Node.js Client
  *
  * Connects to the procMessenger WebSocket server.
  * If no server is running, starts one automatically, then connects as a client.
@@ -50,7 +50,7 @@ async function connectAsClient() {
     ws.on("open", () => {
         console.log("[CLIENT] Connected to server.");
 
-        // Register — include local file list so the server can aggregate it immediately
+        // Register - include local file list so the server can aggregate it immediately
         const regMsg = buildMessage("register", config.CLIENT_NAME, "server", {
             clientType: "nodejs",
             capabilities: config.CAPABILITIES,
@@ -107,7 +107,7 @@ async function connectAsClient() {
 
         if (type === "error") {
             const p = msg.payload || {};
-            console.warn(`[CLIENT] Error: ${p.code} — ${p.message}`);
+            console.warn(`[CLIENT] Error: ${p.code} - ${p.message}`);
             if (p.code === "DUPLICATE_CLIENT") {
                 console.error("[CLIENT] This hostname already has a client of this type connected. Exiting.");
                 process.exit(1);
@@ -182,7 +182,7 @@ async function connectAsClient() {
 
     ws.on("close", (code) => {
         if (code === 4001) {
-            console.error("[CLIENT] Duplicate client — server rejected connection. Exiting.");
+            console.error("[CLIENT] Duplicate client - server rejected connection. Exiting.");
             process.exit(1);
         }
         console.log(`[CLIENT] Disconnected (code=${code}). Reconnecting in 5s...`);
