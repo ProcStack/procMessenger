@@ -6,6 +6,11 @@ Send commands from your phone to your computers over the local network.
 
 A standardized JSON/WebSocket protocol routes messages between an Android app and any number of PC clients running Python or Node.js.
 
+<p align=center>
+  <img src="Client_APK/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" alt="procMessenger App Icon" />
+</p>
+
+
 ---
 
 ### Architecture
