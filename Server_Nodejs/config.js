@@ -1,4 +1,5 @@
 // Server_Nodejs Configuration
+const path = require("path");
 
 module.exports = {
     HOST: "0.0.0.0",
@@ -8,10 +9,14 @@ module.exports = {
     CLIENT_NAME: "nodejs-client",
 
     // Capabilities this client advertises
-    CAPABILITIES: ["run_script", "gather_research"],
+    CAPABILITIES: ["run_script", "gather_research", "file_transfers"],
 
     // Directory containing scripts that can be executed via "run_script"
     SCRIPTS_DIR: "./scripts",
+
+    // Shared transfers directory — both Node.js and Python servers read/write here.
+    // Resolved relative to the project root (two levels up from Server_Nodejs/).
+    TRANSFERS_DIR: path.resolve(__dirname, "../transfers"),
 
     // Ping interval in milliseconds (keepalive)
     PING_INTERVAL: 30000,

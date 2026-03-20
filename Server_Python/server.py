@@ -40,6 +40,20 @@ clients = {}
 # Nickname overrides (clientName -> nickname)
 nicknames = {}
 
+# Aggregated file list from all clients that advertise file_transfers capability
+# Key: clientName, Value: list of file metadata records
+client_file_lists = {}
+
+
+def get_aggregated_file_list():
+    """Build the aggregated file list across all connected clients, newest first."""
+    all_files = []
+    for client_name, files in client_file_lists.items():
+        for f in files:
+            all_files.append({**f, "ownerClient": client_name})
+    all_files.sort(key=lambda r: r.get("sentAt", ""), reverse=True)
+    return all_files
+
 
 def build_message(msg_type, source, target, payload, flags=None):
     """Build a protocol-compliant message envelope."""
@@ -142,15 +156,21 @@ async def route_message(websocket, raw):
                     logger.info(f"Rejected duplicate: {name} (hostname={hostname}, type={client_type})")
                     return
 
+        capabilities = payload.get("capabilities", [])
         clients[websocket] = {
             "name": name,
             "clientType": client_type,
-            "capabilities": payload.get("capabilities", []),
+            "capabilities": capabilities,
             "hostname": hostname,
             "nickname": payload.get("nickname", ""),
             "connectedAt": datetime.now(timezone.utc).isoformat(),
         }
         logger.info(f"Registered client: {name} (hostname={hostname}, type={client_type})")
+
+        # If the registering client advertises file_transfers and provided a file list, record it.
+        if "file_transfers" in capabilities and isinstance(payload.get("fileList"), list):
+            client_file_lists[name] = payload["fileList"]
+            logger.info(f"[FILES] {name} announced {len(payload['fileList'])} file(s) on register.")
 
         # Announce the new client to all others
         announce_msg = build_message("client_announce", "server", "all", {
@@ -174,6 +194,50 @@ async def route_message(websocket, raw):
 
     # Handle pong
     if msg_type == "pong":
+        return
+
+    # A client is announcing its local file list (sent after registration or after a new file is saved).
+    if msg_type == "file_list_announce":
+        files = payload.get("files", [])
+        client_file_lists[source] = files
+        logger.info(f"[FILES] {source} updated file list: {len(files)} file(s).")
+        agg_msg = build_message("file_list", "server", "all", {
+            "files": get_aggregated_file_list(),
+        })
+        await broadcast(agg_msg)
+        return
+
+    # Mobile requesting the aggregated file list from the server directly.
+    if msg_type == "file_list" and target == "server":
+        reply = build_message("file_list", "server", source, {
+            "files": get_aggregated_file_list(),
+        })
+        await websocket.send(reply)
+        return
+
+    # Mobile requesting a file from a specific owner client.
+    if msg_type == "file_fetch" and target == "server":
+        owner_client = payload.get("ownerClient", "")
+        if not owner_client:
+            err_msg = build_message("error", "server", source, {
+                "code": "MISSING_OWNER",
+                "message": "file_fetch requires ownerClient in payload.",
+                "referenceId": msg_id,
+            })
+            await websocket.send(err_msg)
+            return
+        forward = build_message("file_fetch", "server", owner_client, {
+            **payload,
+            "requestedBy": source,
+        })
+        delivered = await send_to(owner_client, forward)
+        if not delivered:
+            err_msg = build_message("error", "server", source, {
+                "code": "OWNER_NOT_CONNECTED",
+                "message": f"File owner '{owner_client}' is not connected.",
+                "referenceId": msg_id,
+            })
+            await websocket.send(err_msg)
         return
 
     # Handle ack flag
@@ -226,9 +290,16 @@ async def handle_connection(websocket):
                 },
             })
             del clients[websocket]
+            # Remove file list for this client so aggregate stays accurate
+            client_file_lists.pop(client_name, None)
             logger.info(f"Unregistered client: {client_name}")
             await broadcast(announce_msg)
             await broadcast_client_list()
+            # Broadcast updated aggregate file list
+            agg_msg = build_message("file_list", "server", "all", {
+                "files": get_aggregated_file_list(),
+            })
+            await broadcast(agg_msg)
 
 
 async def start_server():

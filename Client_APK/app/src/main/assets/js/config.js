@@ -25,6 +25,7 @@ const CONFIG = {
         { value: "gather_research",  label: "Gather Research" },
         { value: "edit_story",       label: "Edit Story" },
         { value: "llm_chat",         label: "LLM Chat" },
+        { value: "file_browser",     label: "File Browser" },
     ],
 
     // Attachment limits (must match server config)

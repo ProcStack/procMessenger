@@ -905,7 +905,260 @@ Sent by server or client when something goes wrong.
 
 ---
 
-## Attachment Transfer
+## File Transfer System
+
+The file transfer system lets any client browse files held by other clients and download them on demand.
+Files are stored permanently in the shared `transfers/` folder at the project root (accessible by both
+Node.js and Python servers). The mobile app never caches files locally — data is streamed on demand and
+held only in memory until dismissed or explicitly downloaded to the phone.
+
+### Architecture
+
+```
+Mobile App  ──file_list──►  Server  ──aggregates lists──►  Mobile App
+Mobile App  ──file_fetch──► Server  ──relays──►  OwnerClient  ──file_transfer_data (chunks)──►  Server  ──►  Mobile App
+Any Client  ──file_receive──► Server  stores chunk ──► reassembles ──► file_list_announce
+```
+
+### Shared Transfers Directory
+
+| Path | `<project_root>/transfers/` |
+|------|-----------------------------|
+| Metadata | `transfers/metadata.json` |
+| Files | `transfers/<fileId>_<safeName>` |
+
+`metadata.json` is a JSON array. Each entry:
+
+| Field | Description |
+|-------|-------------|
+| `fileId` | Unique file identifier (UUID or timestamp-based) |
+| `fileName` | Original filename |
+| `fileType` | MIME type (e.g. `"image/png"`) |
+| `fileSize` | File size in bytes |
+| `storedPath` | Absolute path to stored file |
+| `source` | Client name that sent the file |
+| `target` | Client name that received it (or `"server"`) |
+| `sentAt` | ISO-8601 timestamp of original transfer |
+| `storedAt` | ISO-8601 timestamp when stored to disk |
+| `storedBy` | Server component that wrote it (`"nodejs"` or `"python"`) |
+
+---
+
+### `register` (updated)
+
+Clients that have the `file_transfers` capability now include their current local file list
+in the `register` payload so the server has an up-to-date list immediately on connect.
+
+```json
+{
+  "type": "register",
+  "source": "my-desktop",
+  "target": "server",
+  "payload": {
+    "clientType": "nodejs",
+    "capabilities": ["run_script", "file_transfers"],
+    "hostname": "DESKTOP-ABC123",
+    "nickname": "",
+    "fileList": [
+      {
+        "fileId": "abc123",
+        "fileName": "diagram.png",
+        "fileType": "image/png",
+        "fileSize": 204800,
+        "sentAt": "2026-04-01T12:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+`fileList` is omitted when the client does not have the `file_transfers` capability.
+
+---
+
+### `file_list_announce`
+Sent by a client to the server whenever its local file list changes (e.g. after receiving a new file).
+The server updates its per-client registry and broadcasts an updated aggregate `file_list` to all
+connected clients.
+
+```json
+{
+  "type": "file_list_announce",
+  "source": "my-desktop",
+  "target": "server",
+  "payload": {
+    "files": [
+      {
+        "fileId": "abc123",
+        "fileName": "diagram.png",
+        "fileType": "image/png",
+        "fileSize": 204800,
+        "sentAt": "2026-04-01T12:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### `file_list`
+**Request** — ask the server for the aggregated list of all files held by all connected clients.
+
+```json
+{
+  "type": "file_list",
+  "source": "mobile-phone",
+  "target": "server",
+  "payload": {}
+}
+```
+
+**Response / Broadcast** — server sends this to the requester (or broadcasts to all when triggered by
+a `file_list_announce` or a client disconnect).
+
+```json
+{
+  "type": "file_list",
+  "source": "server",
+  "target": "all",
+  "payload": {
+    "files": [
+      {
+        "fileId": "abc123",
+        "fileName": "diagram.png",
+        "fileType": "image/png",
+        "fileSize": 204800,
+        "sentAt": "2026-04-01T12:00:00Z",
+        "ownerClient": "my-desktop"
+      }
+    ]
+  }
+}
+```
+
+Each entry in `files` includes an `ownerClient` field (the client that holds the file) added by the
+server during aggregation.
+
+---
+
+### `file_fetch`
+**Request** (mobile → server) — ask the server to stream a file from its owning client.
+
+```json
+{
+  "type": "file_fetch",
+  "source": "mobile-phone",
+  "target": "server",
+  "payload": {
+    "fileId": "abc123",
+    "ownerClient": "my-desktop"
+  }
+}
+```
+
+The server forwards this message to `ownerClient` with an added `requestedBy` field:
+
+```json
+{
+  "type": "file_fetch",
+  "source": "server",
+  "target": "my-desktop",
+  "payload": {
+    "fileId": "abc123",
+    "requestedBy": "mobile-phone"
+  }
+}
+```
+
+The owning client then streams the file back as `file_transfer_data` chunks addressed to
+`requestedBy`.
+
+---
+
+### `file_transfer_data`
+Sent by the owning client to the requesting client (relayed via the server), one message per chunk.
+
+```json
+{
+  "type": "file_transfer_data",
+  "source": "my-desktop",
+  "target": "mobile-phone",
+  "payload": {
+    "fileId": "abc123",
+    "fileName": "diagram.png",
+    "fileType": "image/png",
+    "fileSize": 204800,
+    "chunkIndex": 0,
+    "totalChunks": 1,
+    "data": "<base64-encoded chunk>"
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `fileId` | Matches the requested file |
+| `fileName` | Original filename |
+| `fileType` | MIME type |
+| `fileSize` | Total file size in bytes |
+| `chunkIndex` | 0-based index of this chunk |
+| `totalChunks` | Total number of chunks for this file |
+| `data` | Base64-encoded binary data for this chunk |
+
+The receiver reassembles chunks in order. When `chunkIndex === totalChunks - 1` (last chunk), the
+file is complete. The mobile app holds the reassembled data only in JavaScript memory — it is never
+written to device storage unless the user explicitly taps the ⬇ Download button.
+
+---
+
+### `file_receive`
+Sent by any client to store a file on the server. Used when a client wants to push a file into the
+shared `transfers/` directory for others to access.
+
+**Each chunk** (sender → server):
+```json
+{
+  "type": "file_receive",
+  "source": "my-desktop",
+  "target": "server",
+  "payload": {
+    "fileId": "def456",
+    "fileName": "notes.txt",
+    "fileType": "text/plain",
+    "fileSize": 1024,
+    "chunkIndex": 0,
+    "totalChunks": 1,
+    "data": "<base64-encoded chunk>"
+  }
+}
+```
+
+On completion (last chunk received), the server writes the file to `transfers/`, updates
+`metadata.json`, and the client calls `file_list_announce` to propagate the update.
+
+---
+
+### `file_receive_complete`
+Sent by the server to the original sender confirming the file was stored.
+
+```json
+{
+  "type": "file_receive_complete",
+  "source": "server",
+  "target": "my-desktop",
+  "payload": {
+    "fileId": "def456",
+    "fileName": "notes.txt",
+    "storedPath": "/path/to/transfers/def456_notes.txt",
+    "fileSize": 1024
+  }
+}
+```
+
+---
+
+## Attachment Transfer (Legacy)
 
 Files are transferred over WebSocket using chunked base64 encoding.
 
@@ -989,6 +1242,7 @@ The port is configurable in each component's config file:
 
 | Date       | Change |
 |------------|--------|
+| 2026-03-20 | Added File Transfer System: `file_list_announce`, `file_list`, `file_fetch`, `file_transfer_data`, `file_receive`, `file_receive_complete`; updated `register` to carry `fileList`; added `file_transfers` capability; added shared `transfers/` directory with `metadata.json` |
 | 2026-03-19 | Added `find_nodes`, `get_node`, `update_node` node management types |
 | 2026-03-19 | Added `system` type with actions: `recent_scenes`, `open_recent`, `new_scene`, `save_scene` |
 | 2026-03-19 | Generalized `bs_query_nodes` → `query_nodes`, `bs_system_prompt` → `system_prompt`; removed `bs_llm_chat` (merged into `llm_chat` via `nodeContext` field); renamed section to "Application Extension Message Types" |

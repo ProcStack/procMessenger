@@ -75,6 +75,22 @@
         </div>
     </div>
 
+    <!-- File Viewer Modal -->
+    <div id="fileViewerModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span id="fileViewerTitle" class="file-viewer-title">File</span>
+                <button class="btn-close-modal" onclick="closeFileViewerModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <img id="fileViewerImg" class="file-viewer-img" src="" alt="Preview" style="display:none" />
+            </div>
+            <div class="file-viewer-footer">
+                <button id="fileViewerDownload" class="btn-secondary" onclick="fbDownloadFromViewer()">&#x2B07; Download</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts: load order matters -->
     <script src="js/config.js"></script>
     <script src="js/websocket.js"></script>

@@ -24,6 +24,11 @@ let llmChatList = [];              // List of saved chat sessions
 let bsRecentScenes = [];           // From system → recent_scenes response
 let bsNodeIndex = [];              // From find_nodes response — lightweight node list
 
+// --- File Browser State ---
+let fbFileList = [];               // Aggregated file list from server
+// In-flight chunk assembly: fileId -> { record, chunks: {index -> base64}, totalChunks }
+let fbInFlight = {};
+
 // --- Initialization ---
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -217,6 +222,10 @@ function updateDynamicPanel() {
 
         case "llm_chat":
             renderLlmPanel(panel);
+            break;
+
+        case "file_browser":
+            renderFileBrowserPanel(panel);
             break;
 
         default:
@@ -521,6 +530,12 @@ function handleSend() {
         return;
     }
 
+    // File browser requests go to the server directly
+    if (type === "file_browser") {
+        fbRequestList();
+        return;
+    }
+
     const targets = getSelectedTargets();
 
     if (targets.length === 0) {
@@ -678,6 +693,28 @@ function onMessage(msg) {
         } else if (payload.status === "receiving") {
             // Progress — silent
         }
+        return;
+    }
+
+    // --- File Browser messages ---
+
+    if (type === "file_list") {
+        fbFileList = payload.files || [];
+        // Refresh panel if file_browser is currently showing
+        if (document.getElementById("functionSelect").value === "file_browser") {
+            renderFileBrowserPanel(document.getElementById("dynamicPanel"));
+        }
+        return;
+    }
+
+    if (type === "file_transfer_data") {
+        fbReceiveChunk(payload);
+        return;
+    }
+
+    if (type === "file_receive_complete") {
+        addMessageToTab(source, "in", type,
+            `File saved on server: ${payload.fileName} (${formatBytes(payload.fileSize)})`);
         return;
     }
 
@@ -1231,4 +1268,226 @@ function createNewChat() {
             mode: mode,
         });
     }
+}
+
+// ============================================================================
+// File Browser
+// ============================================================================
+
+/** Ask the server for its aggregated file list. */
+function fbRequestList() {
+    if (!wsManager || !wsManager.connected) {
+        setStatus("error", "Not connected to server.");
+        return;
+    }
+    wsManager.send("file_list", "server", {});
+    setStatus("connected", "Requesting file list...");
+}
+
+/** Render the file browser panel. */
+function renderFileBrowserPanel(panel) {
+    panel.innerHTML = `
+        <div class="fb-panel">
+            <div class="fb-toolbar">
+                <button id="fbBtnRefresh" class="btn-secondary btn-sm">&#x21BB; Refresh</button>
+                <span class="fb-count">${fbFileList.length} file(s)</span>
+            </div>
+            <div id="fbFileList" class="fb-file-list">
+                ${fbFileList.length === 0
+                    ? '<div class="empty-list">No files — tap Refresh to load</div>'
+                    : fbFileList.map(fbRenderFileItem).join("")}
+            </div>
+        </div>
+    `;
+    document.getElementById("fbBtnRefresh").addEventListener("click", fbRequestList);
+    // Attach view/download listeners
+    panel.querySelectorAll(".fb-btn-view").forEach((btn) => {
+        btn.addEventListener("click", () => fbRequestFile(btn.dataset.id, btn.dataset.owner, "view"));
+    });
+    panel.querySelectorAll(".fb-btn-download").forEach((btn) => {
+        btn.addEventListener("click", () => fbRequestFile(btn.dataset.id, btn.dataset.owner, "download"));
+    });
+}
+
+/** Build HTML for a single file row. */
+function fbRenderFileItem(f) {
+    const isImage = (f.fileType || "").startsWith("image/");
+    const inFlight = fbInFlight[f.fileId];
+    const progress = inFlight
+        ? `<span class="fb-progress">Receiving ${inFlight.received}/${inFlight.totalChunks}…</span>`
+        : "";
+
+    return `
+        <div class="fb-file-item" data-id="${escapeHtml(f.fileId)}">
+            <div class="fb-file-info">
+                <span class="fb-file-name">${escapeHtml(f.fileName)}</span>
+                <span class="fb-file-meta">
+                    ${escapeHtml(formatBytes(f.fileSize || 0))}
+                    &middot; ${escapeHtml(f.fileType || "?")}
+                    &middot; from ${escapeHtml(f.source || "?")}
+                    &middot; ${escapeHtml(f.ownerClient || "?")}
+                    &middot; ${escapeHtml(fbFormatDate(f.sentAt))}
+                </span>
+                ${progress}
+            </div>
+            <div class="fb-file-actions">
+                ${isImage
+                    ? `<button class="fb-btn-view btn-secondary btn-sm" data-id="${escapeHtml(f.fileId)}" data-owner="${escapeHtml(f.ownerClient || "")}" title="View image">&#128065;</button>`
+                    : ""}
+                <button class="fb-btn-download btn-secondary btn-sm" data-id="${escapeHtml(f.fileId)}" data-owner="${escapeHtml(f.ownerClient || "")}" title="Download">&#x2B07;</button>
+            </div>
+        </div>
+    `;
+}
+
+function fbFormatDate(iso) {
+    if (!iso) return "";
+    try {
+        return new Date(iso).toLocaleString();
+    } catch {
+        return iso;
+    }
+}
+
+/**
+ * Request a file from the server (which forwards to ownerClient).
+ * mode: "view" (display inline) or "download" (save to device)
+ */
+function fbRequestFile(fileId, ownerClient, mode) {
+    if (!wsManager || !wsManager.connected) {
+        setStatus("error", "Not connected.");
+        return;
+    }
+    if (!fileId || !ownerClient) {
+        setStatus("error", "File info missing.");
+        return;
+    }
+
+    // Initialise in-flight tracker
+    fbInFlight[fileId] = { mode, received: 0, totalChunks: null, chunks: {} };
+
+    wsManager.send("file_fetch", "server", { fileId, ownerClient });
+    setStatus("connected", "Requesting file…");
+
+    // Refresh panel to show progress indicator
+    if (document.getElementById("functionSelect").value === "file_browser") {
+        renderFileBrowserPanel(document.getElementById("dynamicPanel"));
+    }
+}
+
+/** Handle an incoming file_transfer_data chunk. */
+function fbReceiveChunk(payload) {
+    const { fileId, chunkIndex, totalChunks, data,
+            fileName, fileType, fileSize, sentAt, source, target } = payload;
+
+    if (!fbInFlight[fileId]) {
+        // Chunk arrived without a prior request — start tracking (edge case)
+        fbInFlight[fileId] = { mode: "view", received: 0, totalChunks, chunks: {} };
+    }
+
+    const tracker = fbInFlight[fileId];
+    tracker.totalChunks = totalChunks;
+    tracker.chunks[chunkIndex] = data;
+    tracker.received = Object.keys(tracker.chunks).length;
+    tracker.meta = { fileName, fileType, fileSize, sentAt, source, target };
+
+    // Refresh panel progress
+    if (document.getElementById("functionSelect").value === "file_browser") {
+        renderFileBrowserPanel(document.getElementById("dynamicPanel"));
+    }
+
+    if (tracker.received < totalChunks) return;
+
+    // All chunks received — reassemble
+    const ordered = [];
+    for (let i = 0; i < totalChunks; i++) {
+        ordered.push(tracker.chunks[i] || "");
+    }
+    const fullBase64 = ordered.join("");
+    const meta = tracker.meta || {};
+
+    delete fbInFlight[fileId];
+
+    if (tracker.mode === "download") {
+        fbDownloadFile(fullBase64, meta.fileName || "download", meta.fileType || "application/octet-stream");
+    } else {
+        fbViewFile(fullBase64, meta.fileName || "file", meta.fileType || "application/octet-stream");
+    }
+
+    // Refresh panel (remove progress indicator)
+    if (document.getElementById("functionSelect").value === "file_browser") {
+        renderFileBrowserPanel(document.getElementById("dynamicPanel"));
+    }
+    setStatus("connected", `File received: ${meta.fileName}`);
+}
+
+/**
+ * Display the file in the image viewer modal (images) or a plain text overlay.
+ * No data is written to phone storage.
+ */
+function fbViewFile(base64Data, fileName, fileType) {
+    const modal = document.getElementById("fileViewerModal");
+    const img = document.getElementById("fileViewerImg");
+    const title = document.getElementById("fileViewerTitle");
+    const dlBtn = document.getElementById("fileViewerDownload");
+
+    if (!modal) return;
+
+    title.textContent = fileName;
+
+    // Store data on the download button for when user taps Download
+    dlBtn.dataset.b64 = base64Data;
+    dlBtn.dataset.name = fileName;
+    dlBtn.dataset.type = fileType;
+
+    if (fileType.startsWith("image/")) {
+        img.src = "data:" + fileType + ";base64," + base64Data;
+        img.style.display = "";
+    } else {
+        img.style.display = "none";
+    }
+
+    modal.classList.add("visible");
+}
+
+/** Close the file viewer modal and free the base64 data from the DOM. */
+function closeFileViewerModal() {
+    const modal = document.getElementById("fileViewerModal");
+    if (modal) modal.classList.remove("visible");
+    const img = document.getElementById("fileViewerImg");
+    if (img) img.src = "";
+    const dlBtn = document.getElementById("fileViewerDownload");
+    if (dlBtn) { dlBtn.dataset.b64 = ""; dlBtn.dataset.name = ""; dlBtn.dataset.type = ""; }
+}
+
+/** Trigger a browser download of the base64 data — saves to phone storage. */
+function fbDownloadFile(base64Data, fileName, fileType) {
+    try {
+        // Decode base64 → Uint8Array
+        const binary = atob(base64Data);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: fileType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e) {
+        setStatus("error", "Download failed: " + e.message);
+    }
+}
+
+/** Download button inside the viewer modal. */
+function fbDownloadFromViewer() {
+    const dlBtn = document.getElementById("fileViewerDownload");
+    if (!dlBtn) return;
+    const b64 = dlBtn.dataset.b64 || "";
+    const name = dlBtn.dataset.name || "file";
+    const type = dlBtn.dataset.type || "application/octet-stream";
+    if (!b64) { setStatus("error", "No file data to download."); return; }
+    fbDownloadFile(b64, name, type);
 }
