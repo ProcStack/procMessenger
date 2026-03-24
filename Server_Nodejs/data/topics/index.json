@@ -2,9 +2,9 @@
   {
     "id": "0b40cc4b-5246-4a36-af19-6f3f2333edeb",
     "name": "Kevin or Proc",
-    "info": "Proc is a Technical Artist; he likely has adhd, but he just rides the flow of it.\n\nOver the years, he's worked on films for 10 years, 8.5 of which at the animation studio Blue Sky Studios as a Technical Director.\nHe left to start doing immersive graphics as a Creative Technologist. Developing official Instagram filters and interactive art installations.\nAfter that he worked for Meta, developing test applications for future technology.\n\nIn his free time, he works on numerous projects at once, like `procMessenger` and `branchShredder`.\n\nA few of his projects-\n- pxlNav; an environment manager and player controller for Threejs in browsers, a game engine for threejs\n- procPages; a Single Page Application JavaScript framework, with a custom DSL language to support webpage pre-compiling.  Designed to support `pxlNav`\n- Flare; a morality driven story of a sentient solar flar lost in crystal caves in a star. Fantasy story of a kid trying to get back home, lost helping other's trials and tribulations.  Side view fighting game with combo button system combat; 3D visuals, with 2D camera & character controls, 2.5D.\n- procstack.github.io or \"proc's git pages\"; person portfolio of Kevin's work during his career.\n\nThese are just his active projects,\nLeaving be his full graphics editing website, games, pipeline tool, 2d & 3d visual graphics, and more!\n\nHe doesn't mind if you ask more questions, he'll just add any extra info to his Topic here.",
+    "info": "Just a biography of Proc-\nProc is a Technical Artist; he likely has adhd, but he just rides the flow of it.  He's a mix between an absurdist and a pragmatist.  So it's open to ideas that challenge his opinions, and if he's wrong, usually shrugs it off as something new he's learned.\n\nHe tried to hold doaist views on life  but has failed a bit trying to achieve them.\n\nOver the years, Proc's worked on films for 10 years, 8.5 of which at the animation studio Blue Sky Studios as a Technical Director. Having done character simulation work for Rio 1&2 and Epic; VFX for Ice Age 4, and Crowds/Boids for Rio 2, Ferdinand, Spies In Disguise, and Peanuts.\n\nHe left to start doing immersive graphics as a Creative Technologist. Developing official Instagram filters and interactive art installations.  Using micro controllers like Arduinos and AtTiny ICs, esp32s and esp8266s, stm32 & mobile phone agmented reality experiences, and web & headset multiplayer event experiences. Self taught electronic diy, but has been doing it a while, so it familiar with many concepts.\n\nAfter that he worked for Meta, developing test applications for future technology.  Applications for Reality Labs device development.\nAlong with optimization of Oculus' Home Environments.\n\nIn his free time, he works on numerous projects at once, like `procMessenger` and `branchShredder`.\n\nA brief rundown of a few projects Proc's developing-\n- pxlNav; an environment manager and player controller for Threejs in browsers, a game engine for threejs. Custom ray caster and data management implementations, over top of three.js usage of those assets and data.  Easy install through npm with included native js, react, and nextjs examples.\n- procPages; a Single Page Application JavaScript framework, with a custom DSL language to support webpage pre-compiling.  Designed to support `pxlNav` as an easy GUI / HUD layer.\n- Flare; a morality driven story of a sentient solar flare, named `Wisp`, getting lost in crystal caves in the convection layer of a star, with crystal mountains reach high into the corona. Fantasy story of a kid trying to get back home, but getting lost along the way helping others with their trials and tribulations.  Side view fighting game with combo button system combat; 3D visuals, with 2D camera & character controls, 2.5D.\n- procstack.github.io or \"proc's git pages\"; personal portfolio of Kevin's art and development career.\n\nThese are just his active projects,\nLeaving be his full graphics editing website, games, pipeline tool, 2d & 3d visual graphics, and more!\n\nHe doesn't mind if you ask more questions, he'll just add any extra info to his Topic here to help me in the future.",
     "createdAt": "2026-03-20T08:18:27.691Z",
-    "updatedAt": "2026-03-20T10:27:24.886Z"
+    "updatedAt": "2026-03-22T14:41:19.947Z"
   },
   {
     "id": "6f53773c-65e3-40da-b90f-30908f46be7e",
@@ -12,5 +12,48 @@
     "info": "A 2.5D fighting game Proc is making in Unity.\nThe main character is named Wisp, a sentient solar flare.\n\nMore info to come soon!",
     "createdAt": "2026-03-20T08:19:33.379Z",
     "updatedAt": "2026-03-20T10:03:35.628Z"
+  },
+  {
+    "id": "eef2a2b4-be94-4d21-aa15-22b1681e6cc3",
+    "name": "procPages",
+    "info": "A native JavaScript Single Page App (SPA) framework.\nDesigned to be the DOM object controls for `pxlNav`",
+    "createdAt": "2026-03-20T12:19:30.056Z"
+  },
+  {
+    "id": "6611136e-85c8-43d6-90e7-9eff89a69732",
+    "name": "pxlNav",
+    "info": "An environment manager and player controller for three.js.  It allows users to add game controls to three.js, and allow developers to create levels in their cgi software of choice.",
+    "createdAt": "2026-03-20T12:20:47.041Z"
+  },
+  {
+    "id": "aa25d217-0521-4b57-9243-63b9c3c1f299",
+    "name": "branchShredder",
+    "info": "A visual node editor to help develop divergent stories.  Allowing users to easily connect story events to each other, to dialogue, and more!",
+    "createdAt": "2026-03-20T12:22:20.556Z"
+  },
+  {
+    "id": "57f117da-e8d7-4761-8244-94fdfe2aa773",
+    "name": "Frayed Fables",
+    "info": "A plushie making company Proc is developing a mini game website for.  Using `pxlNav` as the game engine, families can purchase stuffed animals and link them to their account for rewards, skins, and displaying in a personal showcase.",
+    "createdAt": "2026-03-20T12:24:38.588Z"
+  },
+  {
+    "id": "2ce7395d-1afd-40de-85a3-526c0fb5f7e0",
+    "name": "procMessenger",
+    "info": "A local network based communication system between computers and android phones.\n\nI'm currently talking to Proc through `procManager`\n\nProc seems to be worried by potential security holes and ways the system could be hacked, so I should keep security in mind when suggesting ideas for `procMessages`",
+    "createdAt": "2026-03-20T12:27:49.257Z"
+  },
+  {
+    "id": "4cbf4d17-a20e-43ee-9f6b-0ef928425280",
+    "name": "procMessenger Topics",
+    "info": "`Topics` are short snippets of projects or ideas Proc is working on.\nSometimes a Topic is a python script, sometimes a game project, sometimes just random thoughts about a specific thing.\n\nThey are like a memories added into my system prompt.",
+    "createdAt": "2026-03-20T21:23:36.956Z"
+  },
+  {
+    "id": "e238a9d4-5e24-408f-8fcd-b68a133eafcd",
+    "name": "Gals",
+    "info": "Go4thegoat\nDianaoftherose\nAlistar.brekker",
+    "createdAt": "2026-03-21T01:22:36.403Z",
+    "updatedAt": "2026-03-21T03:27:08.720Z"
   }
 ]

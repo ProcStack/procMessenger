@@ -17,6 +17,7 @@ import sys
 import websockets
 
 import config
+import handlers as _handlers
 
 # Import Tailscale utility from workspace root (one level up)
 _workspace_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,11 +47,21 @@ client_file_lists = {}
 
 
 def get_aggregated_file_list():
-    """Build the aggregated file list across all connected clients, newest first."""
-    all_files = []
+    """Build the aggregated file list across all connected clients, newest first.
+
+    Deduplicates by fileId: when multiple clients announce the same fileId
+    (e.g. both 'server' and 'python-client' read the same metadata.json),
+    the entry from the client whose name matches ownerClient is kept.
+    """
+    seen = {}  # fileId -> record
     for client_name, files in client_file_lists.items():
         for f in files:
-            all_files.append({**f, "ownerClient": client_name})
+            owner = f.get("ownerClient") or client_name
+            entry = {**f, "ownerClient": owner}
+            existing = seen.get(f.get("fileId"))
+            if existing is None or client_name == owner:
+                seen[f.get("fileId")] = entry
+    all_files = list(seen.values())
     all_files.sort(key=lambda r: r.get("sentAt", ""), reverse=True)
     return all_files
 
@@ -226,6 +237,34 @@ async def route_message(websocket, raw):
             })
             await websocket.send(err_msg)
             return
+
+        # If the file is owned by the server itself, serve it directly
+        if owner_client == "server":
+            record, chunks = _handlers.read_file_as_chunks(payload.get("fileId", ""))
+            if record is None:
+                err_msg = build_message("error", "server", source, {
+                    "code": "FILE_NOT_FOUND",
+                    "message": f"File '{payload.get('fileId', '')}' not found on server.",
+                    "referenceId": msg_id,
+                })
+                await websocket.send(err_msg)
+                return
+            for c in chunks:
+                chunk_msg = build_message("file_transfer_data", "server", source, {
+                    "fileId": record["fileId"],
+                    "fileName": record["fileName"],
+                    "fileType": record["fileType"],
+                    "fileSize": record["fileSize"],
+                    "sentAt": record.get("sentAt", ""),
+                    "source": record.get("source", ""),
+                    "target": source,
+                    "chunkIndex": c["chunkIndex"],
+                    "totalChunks": c["totalChunks"],
+                    "data": c["data"],
+                })
+                await websocket.send(chunk_msg)
+            return
+
         forward = build_message("file_fetch", "server", owner_client, {
             **payload,
             "requestedBy": source,
@@ -238,6 +277,99 @@ async def route_message(websocket, raw):
                 "referenceId": msg_id,
             })
             await websocket.send(err_msg)
+        return
+
+    # Mobile uploading a file to be stored directly on the server
+    if msg_type == "file_upload" and target == "server":
+        done, record = _handlers.receive_file_chunk({**payload, "source": source, "target": "server"})
+        if done:
+            client_file_lists["server"] = _handlers.get_file_list()
+            agg_msg = build_message("file_list", "server", "all", {
+                "files": get_aggregated_file_list(),
+            })
+            await broadcast(agg_msg)
+            reply = build_message("file_receive_complete", "server", source, {
+                "fileId": record["fileId"],
+                "fileName": record["fileName"],
+                "fileSize": record["fileSize"],
+                "fileType": record["fileType"],
+                "source": source,
+                "target": "server",
+                "sentAt": record["sentAt"],
+            })
+            await websocket.send(reply)
+        return
+
+    # Handle file_delete: serve server-owned files inline; relay others to ownerClient.
+    if msg_type == "file_delete" and target == "server":
+        owner_client = payload.get("ownerClient", "")
+        if not owner_client:
+            await websocket.send(build_message("error", "server", source, {
+                "code": "MISSING_OWNER",
+                "message": "file_delete requires ownerClient in payload.",
+            }))
+            return
+        if owner_client == "server":
+            response_type, response_payload = _handlers.handle_file_delete(payload)
+            if response_payload.get("deleted"):
+                client_file_lists["server"] = _handlers.get_file_list()
+                await broadcast(build_message("file_list", "server", "all", {
+                    "files": get_aggregated_file_list()
+                }))
+            await websocket.send(build_message(response_type, "server", source, response_payload))
+            return
+        forward = build_message("file_delete", "server", owner_client, {
+            **payload, "requestedBy": source,
+        })
+        delivered = await send_to(owner_client, forward)
+        if not delivered:
+            await websocket.send(build_message("error", "server", source, {
+                "code": "OWNER_NOT_CONNECTED",
+                "message": f"File owner '{owner_client}' is not connected.",
+            }))
+        return
+
+    # Consolidated "known data" request
+    if msg_type == "server_known_data" and target == "server":
+        reply = build_message("server_known_data", "server", source, {
+            "files": get_aggregated_file_list(),
+            "topics": _handlers.load_topics(),
+        })
+        await websocket.send(reply)
+        return
+
+    # Handle new topic creation
+    if msg_type == "topic_create" and target == "server":
+        topics = _handlers.load_topics()
+        new_topic = {
+            "id": str(uuid.uuid4()),
+            "name": payload.get("name", "Untitled Topic"),
+            "info": payload.get("info", ""),
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+        }
+        topics.append(new_topic)
+        _handlers.save_topics(topics)
+        announce_msg = build_message("topics", "server", "all", {"topics": topics})
+        await broadcast(announce_msg)
+        return
+
+    # Handle topic update
+    if msg_type == "topic_update" and target == "server":
+        topics = _handlers.load_topics()
+        topic_id = payload.get("id", "")
+        idx = next((i for i, t in enumerate(topics) if t.get("id") == topic_id), -1)
+        if idx == -1:
+            await websocket.send(build_message("error", "server", source, {
+                "code": "TOPIC_NOT_FOUND",
+                "message": f"Topic with id '{topic_id}' not found.",
+            }))
+            return
+        topics[idx]["name"] = payload.get("name", topics[idx]["name"])
+        topics[idx]["info"] = payload.get("info", topics[idx]["info"])
+        topics[idx]["updatedAt"] = datetime.now(timezone.utc).isoformat()
+        _handlers.save_topics(topics)
+        announce_msg = build_message("topics", "server", "all", {"topics": topics})
+        await broadcast(announce_msg)
         return
 
     # Handle ack flag

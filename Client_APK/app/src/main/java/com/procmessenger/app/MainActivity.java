@@ -29,6 +29,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(webView);
 
         configureWebView();
+        webView.addJavascriptInterface(new DownloadBridge(this), "AndroidDownload");
         webView.loadUrl("file:///android_asset/index.html");
     }
 

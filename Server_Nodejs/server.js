@@ -11,6 +11,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 const config = require("./config");
+const handlers = require("./handlers");
 
 // Registry of connected clients
 // Key: ws object, Value: client info
@@ -78,12 +79,22 @@ function getClientList() {
  * Each record is annotated with ownerClient so the mobile app knows who holds the file.
  */
 function getAggregatedFileList() {
-    const all = [];
+    // Deduplicate by fileId across all client lists.
+    // When two clients announce the same fileId (e.g. both server and python-client
+    // read the same metadata.json), keep the entry where the announcing client name
+    // matches the record's ownerClient field — that is the authoritative holder.
+    const seen = new Map();
     for (const [clientName, files] of clientFileLists) {
         for (const f of files) {
-            all.push({ ...f, ownerClient: clientName });
+            const owner = f.ownerClient || clientName;
+            const entry = { ...f, ownerClient: owner };
+            const existing = seen.get(f.fileId);
+            if (!existing || clientName === owner) {
+                seen.set(f.fileId, entry);
+            }
         }
     }
+    const all = Array.from(seen.values());
     // Sort newest first
     all.sort((a, b) => (b.sentAt || "").localeCompare(a.sentAt || ""));
     return all;
@@ -284,6 +295,38 @@ function routeMessage(ws, raw) {
             ws.send(errMsg);
             return;
         }
+
+        // If the file is owned by the server, serve it directly without a relay
+        if (ownerClient === "server") {
+            const result = handlers.readFileAsChunks(payload.fileId);
+            if (!result) {
+                const errMsg = buildMessage("error", "server", source, {
+                    code: "FILE_NOT_FOUND",
+                    message: `File '${payload.fileId}' not found on server.`,
+                    referenceId: msgId,
+                });
+                ws.send(errMsg);
+                return;
+            }
+            const { record, chunks } = result;
+            for (const c of chunks) {
+                const chunkMsg = buildMessage("file_transfer_data", "server", source, {
+                    fileId: record.fileId,
+                    fileName: record.fileName,
+                    fileType: record.fileType,
+                    fileSize: record.fileSize,
+                    sentAt: record.sentAt || "",
+                    source: record.source || "",
+                    target: source,
+                    chunkIndex: c.chunkIndex,
+                    totalChunks: c.totalChunks,
+                    data: c.data,
+                });
+                ws.send(chunkMsg);
+            }
+            return;
+        }
+
         // Forward the request to the ownerClient, tagging requestedBy so the client knows where to reply
         const forward = buildMessage("file_fetch", "server", ownerClient, {
             ...payload,
@@ -297,6 +340,62 @@ function routeMessage(ws, raw) {
                 referenceId: msgId,
             });
             ws.send(errMsg);
+        }
+        return;
+    }
+
+    // Mobile uploading a file to be stored directly on the server
+    if (type === "file_upload" && target === "server") {
+        const result = handlers.receiveFileChunk({ ...payload, source, target: "server" });
+        if (result.done) {
+            const rec = result.record;
+            // Register the server's own file list so it appears in the aggregate
+            clientFileLists.set("server", handlers.getFileList());
+            // Broadcast updated aggregate file list to all clients
+            const aggMsg = buildMessage("file_list", "server", "all", {
+                files: getAggregatedFileList(),
+            });
+            broadcast(aggMsg);
+            // Confirm the upload to the sender
+            const reply = buildMessage("file_receive_complete", "server", source, {
+                fileId: rec.fileId,
+                fileName: rec.fileName,
+                fileSize: rec.fileSize,
+                fileType: rec.fileType,
+                source,
+                target: "server",
+                sentAt: rec.sentAt,
+            });
+            ws.send(reply);
+        }
+        return;
+    }
+
+    // Handle file_delete: serve server-owned files inline; relay others to ownerClient.
+    if (type === "file_delete" && target === "server") {
+        const ownerClient = payload.ownerClient || "";
+        if (!ownerClient) {
+            ws.send(buildMessage("error", "server", source, {
+                code: "MISSING_OWNER", message: "file_delete requires ownerClient in payload."
+            }));
+            return;
+        }
+        if (ownerClient === "server") {
+            const result = handlers.deleteFile(payload.fileId || "");
+            if (result.deleted) {
+                clientFileLists.set("server", handlers.getFileList());
+                broadcast(buildMessage("file_list", "server", "all", { files: getAggregatedFileList() }));
+            }
+            ws.send(buildMessage("file_delete_complete", "server", source, result));
+            return;
+        }
+        const forward = buildMessage("file_delete", "server", ownerClient, { ...payload, requestedBy: source });
+        const delivered = sendTo(ownerClient, forward);
+        if (!delivered) {
+            ws.send(buildMessage("error", "server", source, {
+                code: "OWNER_NOT_CONNECTED",
+                message: `File owner '${ownerClient}' is not connected.`,
+            }));
         }
         return;
     }

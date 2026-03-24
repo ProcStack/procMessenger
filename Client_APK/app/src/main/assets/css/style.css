@@ -956,6 +956,21 @@ button:active {
     margin-top: 0;
     padding: 6px 10px;
     font-size: 14px;
+    flex-shrink: 0;
+}
+
+.fb-btn-delete {
+    margin-top: 0;
+    padding: 6px 10px;
+    font-size: 14px;
+    background: none;
+    border: 1px solid var(--error);
+    color: var(--error);
+    flex-shrink: 0;
+}
+.fb-btn-delete:active {
+    background: var(--error);
+    color: #fff;
 }
 
 /* --- File Viewer Modal --- */
@@ -993,4 +1008,73 @@ button:active {
     padding: 6px 10px;
     font-size: 12px;
     margin-top: 0;
+}
+
+/* --- File Browser: Selection & Action Bar --- */
+
+.fb-file-item {
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.fb-file-item.selected {
+    border-color: var(--accent);
+    background: rgba(87, 169, 216, 0.15);
+}
+
+.fb-file-item:active {
+    background: rgba(87, 169, 216, 0.08);
+}
+
+.fb-file-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.fb-action-bar {
+    background: var(--bg-card);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 6px 8px;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.fb-selected-name {
+    font-size: 12px;
+    color: var(--accent-light);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 60px;
+    align-self: center;
+}
+
+/* --- File Viewer: Text Display --- */
+
+.file-viewer-text {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px;
+    font-family: "Cascadia Code", "Fira Code", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 60vh;
+    overflow-y: auto;
+    margin: 0;
+    color: var(--text-primary);
+}
+
+/* --- File Editor Modal --- */
+
+.fb-editor-content {
+    min-height: 200px;
+    font-family: "Cascadia Code", "Fira Code", monospace;
+    font-size: 13px;
+    resize: vertical;
 }

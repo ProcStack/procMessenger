@@ -152,9 +152,30 @@
             </div>
             <div class="modal-body">
                 <img id="fileViewerImg" class="file-viewer-img" src="" alt="Preview" style="display:none" />
+                <pre id="fileViewerText" class="file-viewer-text" style="display:none"></pre>
             </div>
             <div class="file-viewer-footer">
                 <button id="fileViewerDownload" class="btn-secondary" onclick="fbDownloadFromViewer()">&#x2B07; Download</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Editor Modal (New File / Edit File) -->
+    <div id="fbFileEditorModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="fbEditorModalTitle">New File</h3>
+                <button class="btn-close-modal" onclick="closeFbFileEditorModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label>Filename <small>(defaults to .txt if no extension)</small>:</label>
+                <input type="text" id="fbEditorFilename" placeholder="my_file.txt" />
+                <label>Content:</label>
+                <textarea id="fbEditorContent" class="fb-editor-content" rows="10" placeholder="File content..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeFbFileEditorModal()">Cancel</button>
+                <button class="btn-primary" onclick="fbSaveFileFromEditor()">Save to Server</button>
             </div>
         </div>
     </div>

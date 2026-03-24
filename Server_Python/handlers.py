@@ -7,6 +7,7 @@ This file is imported by client.py to process messages received from the server.
 
 import os
 import json
+import sys
 import base64
 import subprocess
 import logging
@@ -15,6 +16,36 @@ from datetime import datetime, timezone
 import config
 
 logger = logging.getLogger("procMessenger.handlers")
+
+# ---------------------------------------------------------------------------
+# Topics Helpers
+# ---------------------------------------------------------------------------
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+TOPICS_DIR = os.path.join(_SCRIPT_DIR, "data", "topics")
+TOPICS_FILE = os.path.join(TOPICS_DIR, "index.json")
+
+
+def _ensure_topics_dir():
+    os.makedirs(TOPICS_DIR, exist_ok=True)
+
+
+def load_topics():
+    _ensure_topics_dir()
+    if not os.path.isfile(TOPICS_FILE):
+        return []
+    try:
+        with open(TOPICS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_topics(topics):
+    _ensure_topics_dir()
+    with open(TOPICS_FILE, "w", encoding="utf-8") as f:
+        json.dump(topics, f, indent=2)
+
 
 # ---------------------------------------------------------------------------
 # File Transfer Helpers
@@ -181,10 +212,11 @@ def get_available_scripts():
     return scripts
 
 
-def execute_script(script_name, args=None):
+def execute_script(script_name, args=None, timeout=600):
     """
     Execute a script by name from the scripts directory.
     Returns dict with exitCode, stdout, stderr.
+    Python scripts (.py) are run with the current interpreter automatically.
     """
     scripts_dir = os.path.abspath(config.SCRIPTS_DIR)
     script_path = os.path.join(scripts_dir, script_name)
@@ -206,7 +238,13 @@ def execute_script(script_name, args=None):
             "stderr": f"Script not found: {script_name}",
         }
 
-    cmd = [real_script_path]
+    # Run Python scripts with the current interpreter so they work on
+    # all platforms (including Windows where .py isn't always executable).
+    if real_script_path.lower().endswith(".py"):
+        cmd = [sys.executable, real_script_path]
+    else:
+        cmd = [real_script_path]
+
     if args:
         # Only allow string arguments
         cmd.extend(str(a) for a in args)
@@ -216,7 +254,7 @@ def execute_script(script_name, args=None):
             cmd,
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=timeout,
             cwd=real_scripts_dir,
         )
         return {
@@ -228,7 +266,7 @@ def execute_script(script_name, args=None):
         return {
             "exitCode": -1,
             "stdout": "",
-            "stderr": "Script execution timed out (120s limit).",
+            "stderr": f"Script execution timed out ({timeout}s limit).",
         }
     except Exception as e:
         return {
@@ -255,6 +293,10 @@ def handle_run_script(payload):
     if action == "execute":
         script_name = payload.get("scriptName", "")
         args = payload.get("args", [])
+        # Allow the caller to request a longer timeout (clamped 30 s – 1 h).
+        # build_apk.py needs ~10 minutes on a cold Gradle cache.
+        timeout = int(payload.get("timeout", 600))
+        timeout = max(30, min(timeout, 3600))
         if not script_name:
             return {
                 "action": "result",
@@ -263,12 +305,39 @@ def handle_run_script(payload):
                 "stdout": "",
                 "stderr": "No scriptName provided.",
             }
-        result = execute_script(script_name, args)
-        return {
+        result = execute_script(script_name, args, timeout)
+
+        # ----------------------------------------------------------------
+        # Parse PROCMESSENGER_FILE_REGISTER lines emitted by the script.
+        # Each such line carries a JSON metadata record that should be
+        # upserted into transfers/metadata.json and then announced to the
+        # server so the mobile File Browser reflects the new file.
+        # ----------------------------------------------------------------
+        _REGISTER_PREFIX = "PROCMESSENGER_FILE_REGISTER:"
+        registered_files = []
+        clean_lines = []
+        for line in result.get("stdout", "").splitlines():
+            if line.startswith(_REGISTER_PREFIX):
+                try:
+                    record = json.loads(line[len(_REGISTER_PREFIX):].strip())
+                    _upsert_meta(record)
+                    registered_files.append(record)
+                    logger.info(f"[SCRIPT] Registered file: {record.get('fileName')}")
+                except Exception as exc:
+                    logger.warning(f"[SCRIPT] Bad PROCMESSENGER_FILE_REGISTER line: {exc}")
+            else:
+                clean_lines.append(line)
+
+        response = {
             "action": "result",
             "scriptName": script_name,
-            **result,
+            "exitCode": result["exitCode"],
+            "stdout": "\n".join(clean_lines),
+            "stderr": result["stderr"],
         }
+        if registered_files:
+            response["registeredFiles"] = registered_files
+        return response
 
     return {
         "action": "error",
@@ -379,4 +448,45 @@ def handle_message(msg):
     if msg_type == "file_fetch":
         return "__multi__", handle_file_fetch(payload)
 
+    if msg_type == "file_delete":
+        return handle_file_delete(payload)
+
     return None, None
+
+
+def handle_file_delete(payload):
+    """Delete a stored file and remove its record from metadata.json."""
+    file_id = payload.get("fileId", "")
+    if not file_id:
+        return "file_delete_complete", {"fileId": "", "deleted": False, "error": "fileId required"}
+
+    records = _load_meta()
+    record = next((r for r in records if r.get("fileId") == file_id), None)
+    if record is None:
+        return "file_delete_complete", {"fileId": file_id, "deleted": False, "error": "File not found"}
+
+    stored_path = record.get("storedPath", "")
+    real_transfers = os.path.realpath(TRANSFERS_DIR)
+    try:
+        real_stored = os.path.realpath(stored_path)
+    except Exception:
+        return "file_delete_complete", {"fileId": file_id, "deleted": False, "error": "Invalid stored path"}
+
+    if not real_stored.startswith(real_transfers + os.sep):
+        return "file_delete_complete", {"fileId": file_id, "deleted": False,
+                                         "error": "Security error: path traversal detected"}
+
+    try:
+        if os.path.isfile(real_stored):
+            os.unlink(real_stored)
+    except Exception as e:
+        return "file_delete_complete", {"fileId": file_id, "deleted": False, "error": str(e)}
+
+    new_records = [r for r in records if r.get("fileId") != file_id]
+    _save_meta(new_records)
+    logger.info(f"[DELETE] {file_id} - {record.get('fileName', '')}")
+    return "file_delete_complete", {
+        "fileId": file_id,
+        "fileName": record.get("fileName", ""),
+        "deleted": True,
+    }

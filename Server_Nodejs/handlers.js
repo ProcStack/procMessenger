@@ -231,6 +231,39 @@ async function handleRunScript(payload) {
 }
 
 /**
+ * Delete a stored file and remove its metadata record.
+ * Returns { fileId, fileName, deleted, error? }
+ */
+function deleteFile(fileId) {
+    if (!fileId) return { fileId: "", deleted: false, error: "fileId required" };
+
+    const records = loadMeta();
+    const record = records.find((r) => r.fileId === fileId);
+    if (!record) return { fileId, deleted: false, error: "File not found" };
+
+    const storedPath = record.storedPath;
+    const realTransfers = fs.realpathSync(TRANSFERS_DIR);
+    let realStored;
+    try { realStored = fs.realpathSync(storedPath); } catch {
+        return { fileId, deleted: false, error: "Invalid stored path" };
+    }
+    if (!realStored.startsWith(realTransfers + path.sep)) {
+        return { fileId, deleted: false, error: "Security error: path traversal detected" };
+    }
+
+    try {
+        if (fs.existsSync(realStored)) fs.unlinkSync(realStored);
+    } catch (e) {
+        return { fileId, deleted: false, error: e.message };
+    }
+
+    const newRecords = records.filter((r) => r.fileId !== fileId);
+    saveMeta(newRecords);
+    console.log(`[DELETE] ${fileId} - ${record.fileName}`);
+    return { fileId, fileName: record.fileName, deleted: true };
+}
+
+/**
  * Handle a gather_research message.
  * Placeholder - requires Puppeteer + Search API + local LLM integration.
  */
@@ -366,4 +399,7 @@ module.exports = {
     getFileList,
     upsertMeta,
     loadMeta,
+    receiveFileChunk,
+    readFileAsChunks,
+    deleteFile,
 };
