@@ -24,8 +24,8 @@ const nicknames = new Map();
 // Key: clientName, Value: array of file metadata records
 const clientFileLists = new Map();
 
-// --- Topics storage ---
-const TOPICS_DIR = path.join(__dirname, "data", "topics");
+// --- Topics storage (shared project-root folder, same as transfers/) ---
+const TOPICS_DIR = path.resolve(__dirname, "../data/topics");
 const TOPICS_FILE = path.join(TOPICS_DIR, "index.json");
 
 function ensureTopicsDir() {
@@ -278,6 +278,25 @@ function routeMessage(ws, raw) {
 
         const announceMsg = buildMessage("topics", "server", "all", { topics });
         broadcast(announceMsg);
+        return;
+    }
+
+    // Two-way topic sync: mobile sends its local list, server merges by newest updatedAt/createdAt
+    if (type === "topic_sync" && target === "server") {
+        const getTime = t => Date.parse(t.updatedAt || t.createdAt || "") || 0;
+        const serverList = loadTopics();
+        const clientList = Array.isArray(payload.topics) ? payload.topics : [];
+        const merged = new Map();
+        serverList.forEach(t => merged.set(t.id, t));
+        clientList.forEach(t => {
+            if (t.id && (!merged.has(t.id) || getTime(t) > getTime(merged.get(t.id)))) {
+                merged.set(t.id, t);
+            }
+        });
+        const mergedList = [...merged.values()];
+        saveTopics(mergedList);
+        ws.send(buildMessage("topic_sync_result", "server", source, { topics: mergedList }));
+        broadcast(buildMessage("topics", "server", "all", { topics: mergedList }), ws);
         return;
     }
 

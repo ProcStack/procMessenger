@@ -372,6 +372,29 @@ async def route_message(websocket, raw):
         await broadcast(announce_msg)
         return
 
+    # Two-way topic sync: mobile sends its local list, server merges by newest updatedAt/createdAt
+    if msg_type == "topic_sync" and target == "server":
+        def _topic_time(t):
+            ts = t.get("updatedAt") or t.get("createdAt") or ""
+            try:
+                return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                return 0.0
+        server_list = _handlers.load_topics()
+        client_list = payload.get("topics", [])
+        if not isinstance(client_list, list):
+            client_list = []
+        merged = {t["id"]: t for t in server_list if t.get("id")}
+        for t in client_list:
+            tid = t.get("id", "")
+            if tid and (tid not in merged or _topic_time(t) > _topic_time(merged[tid])):
+                merged[tid] = t
+        merged_list = list(merged.values())
+        _handlers.save_topics(merged_list)
+        await websocket.send(build_message("topic_sync_result", "server", source, {"topics": merged_list}))
+        await broadcast(build_message("topics", "server", "all", {"topics": merged_list}), exclude=websocket)
+        return
+
     # Handle ack flag
     if flags.get("ack"):
         ack_msg = build_message("ack", "server", source, {

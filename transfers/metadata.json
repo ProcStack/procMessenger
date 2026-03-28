@@ -1,0 +1,28 @@
+[
+  {
+    "fileId": "build-apk-1_4_4",
+    "fileName": "procMessenger-1.4.4.apk",
+    "fileType": "application/vnd.android.package-archive",
+    "fileSize": 3118559,
+    "storedPath": "C:\\trancor\\Projects\\procMessenger\\data\\transfers\\procMessenger-1.4.4.apk",
+    "source": "build_apk.py",
+    "target": "server",
+    "sentAt": "2026-03-28T20:35:04.136619+00:00",
+    "storedAt": "2026-03-28T20:35:04.136619+00:00",
+    "storedBy": "python-client",
+    "ownerClient": "python-client"
+  },
+  {
+    "fileId": "build-apk-1_4_5",
+    "fileName": "procMessenger-1.4.5.apk",
+    "fileType": "application/vnd.android.package-archive",
+    "fileSize": 3118795,
+    "storedPath": "C:\\trancor\\Projects\\procMessenger\\data\\transfers\\procMessenger-1.4.5.apk",
+    "source": "build_apk.py",
+    "target": "server",
+    "sentAt": "2026-03-28T21:25:43.195648+00:00",
+    "storedAt": "2026-03-28T21:25:43.195648+00:00",
+    "storedBy": "python-client",
+    "ownerClient": "python-client"
+  }
+]

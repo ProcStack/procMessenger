@@ -6,7 +6,7 @@ module.exports = {
     PORT: 9734,
 
     // Name this client uses when registering with the server
-    CLIENT_NAME: "nodejs-client",
+    CLIENT_NAME: "Node.js Runtime",
 
     // Capabilities this client advertises
     CAPABILITIES: ["run_script", "gather_research", "file_transfers"],
@@ -16,7 +16,7 @@ module.exports = {
 
     // Shared transfers directory - both Node.js and Python servers read/write here.
     // Resolved relative to the project root (two levels up from Server_Nodejs/).
-    TRANSFERS_DIR: path.resolve(__dirname, "../transfers"),
+    TRANSFERS_DIR: path.resolve(__dirname, "../data/transfers"),
 
     // Ping interval in milliseconds (keepalive)
     PING_INTERVAL: 30000,

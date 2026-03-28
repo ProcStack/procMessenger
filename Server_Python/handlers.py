@@ -22,7 +22,8 @@ logger = logging.getLogger("procMessenger.handlers")
 # ---------------------------------------------------------------------------
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-TOPICS_DIR = os.path.join(_SCRIPT_DIR, "data", "topics")
+
+TOPICS_DIR = config.TOPICS_DIR
 TOPICS_FILE = os.path.join(TOPICS_DIR, "index.json")
 
 
@@ -202,12 +203,23 @@ def get_available_scripts():
         os.makedirs(scripts_dir, exist_ok=True)
         return scripts
 
+    # Load optional per-script descriptions from metadata.json
+    meta_path = os.path.join(scripts_dir, "metadata.json")
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            script_meta = json.load(f)
+    except Exception:
+        script_meta = {}
+
     for filename in os.listdir(scripts_dir):
+        if filename == "metadata.json":
+            continue
         filepath = os.path.join(scripts_dir, filename)
         if os.path.isfile(filepath):
+            description = script_meta.get(filename, {}).get("description", "")
             scripts.append({
                 "name": filename,
-                "description": f"Script: {filename}",
+                "description": description,
             })
     return scripts
 

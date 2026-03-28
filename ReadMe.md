@@ -43,7 +43,10 @@ procMessenger/
 ├── ReadMe.md                # It's this file!
 ├── tailscale_vpn.py         # Tailscale VPN helper
 ├── Images/                  # Project images & assets
-├── transfers/               # File transfer staging directory
+
+├── data/                    # User Data; Runtime Data - git ignored
+│   ├── transfers/           # File transfer directory
+│   ├── topics/              # LLM Topics directory
 │
 ├── LLM_Chat/                # Local/API LLM chat service
 │   ├── config.py            # Provider config, model paths, .env keys

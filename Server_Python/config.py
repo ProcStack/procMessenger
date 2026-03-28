@@ -5,7 +5,7 @@ HOST = "0.0.0.0"
 PORT = 9734
 
 # Name this client uses when registering with the server
-CLIENT_NAME = "python-client"
+CLIENT_NAME = "Python Runtime"
 
 # Capabilities this client advertises
 CAPABILITIES = ["run_script", "edit_story", "file_transfers"]
@@ -14,8 +14,8 @@ CAPABILITIES = ["run_script", "edit_story", "file_transfers"]
 SCRIPTS_DIR = "./scripts"
 
 # Shared transfers directory - both Node.js and Python servers read/write here.
-# Resolved relative to the project root (two levels up from Server_Python/).
-TRANSFERS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "transfers"))
+TRANSFERS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "data", "transfers"))
+TOPICS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "data", "topics"))
 
 # Ping interval in seconds (keepalive)
 PING_INTERVAL = 30

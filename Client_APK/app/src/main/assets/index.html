@@ -21,11 +21,11 @@
         <div id="connectionStatus" class="status disconnected">Not connected</div>
     </div>
 
-    <!-- Connected Computers (multi-select) -->
+    <!-- Connected Clients (multi-select) -->
     <div class="section">
-        <div class="section-title">Computers - tap to select targets</div>
+        <div class="section-title">Clients - tap to select targets</div>
         <div id="clientList">
-            <div class="empty-list">No computers connected</div>
+            <div class="empty-list">No clients connected</div>
         </div>
     </div>
 
@@ -82,6 +82,7 @@
                 <div class="topic-select-actions">
                     <button class="btn-secondary" onclick="openTopicModalFromSelect('new')">New</button>
                     <button class="btn-secondary" onclick="openTopicModalFromSelect('edit')">Edit</button>
+                    <button class="btn-secondary" onclick="syncTopics()">&#x21C4; Sync</button>
                 </div>
                 <button class="btn-secondary" onclick="closeTopicSelectModal()">Close</button>
             </div>

@@ -8,7 +8,7 @@ builds the Android APK via the Gradle wrapper (debug variant — signed with
 the Android debug key, ready to sideload immediately), copies the result to:
 
   Client_APK/procMessenger-{version}.apk   <- versioned copy at project root
-  transfers/{fileId}_{name}.apk            <- stored in shared transfers dir
+  data/transfers/{fileId}_{name}.apk       <- stored in shared transfers dir
 
 …then prints a PROCMESSENGER_FILE_REGISTER line so the Server_Python handler
 automatically updates metadata.json and sends a file_list_announce to the
@@ -46,7 +46,7 @@ PROJECT_DIR    = os.path.dirname(SERVER_DIR)                 # …/procMessenger
 
 BUILD_GRADLE   = os.path.join(PROJECT_DIR, "Client_APK", "app", "build.gradle")
 CLIENT_APK_DIR = os.path.join(PROJECT_DIR, "Client_APK")
-TRANSFERS_DIR  = os.path.join(PROJECT_DIR, "transfers")
+TRANSFERS_DIR  = os.path.join(PROJECT_DIR, "data", "transfers")
 META_FILE      = os.path.join(TRANSFERS_DIR, "metadata.json")
 
 GRADLE_WRAPPER = os.path.join(

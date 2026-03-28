@@ -186,4 +186,8 @@ cython_debug/
 /LLM_Chat/chat_history
 /Client_APK/app/release
 Client_APK/local.properties
-/transfers
+
+# Shared data directory - ignore stored content, keep folder structure
+/data/transfers/*
+/data/topics/*
+!/data/**/.gitkeep

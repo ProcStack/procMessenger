@@ -19,6 +19,7 @@ let llmModes = [];                 // Available LLM modes from llm_announce
 let llmActiveChatName = "";        // Currently active chat name
 let llmChatHistory = [];           // Messages in the active LLM chat
 let llmChatList = [];              // List of saved chat sessions
+let llmModelsRequested = false;    // True after the first automatic model fetch this session
 
 // --- Topic State ---
 let serverTopics = [];             // List of topics from server
@@ -40,6 +41,7 @@ let fbEditingFileId = null;        // fileId of the file being edited (null for 
 
 document.addEventListener("DOMContentLoaded", () => {
     loadNicknames();
+    loadTopicsFromLocal();
     setupEventListeners();
     setupLinkHandler();
     populateFunctionDropdown();
@@ -571,6 +573,12 @@ function renderLlmPanel(panel) {
     // Populate model dropdown for current provider
     updateModelDropdown();
 
+    // Auto-fetch models from the LLM client the first time LLM Chat is opened this session
+    if (!llmModelsRequested && wsManager && wsManager.connected) {
+        llmModelsRequested = true;
+        refreshLlmModels();
+    }
+
     // Restore chat display if we have history for active chat
     if (llmActiveChatName && llmChatHistory.length > 0) {
         renderLlmChatMessages();
@@ -741,6 +749,7 @@ function onMessage(msg) {
     if (type === "server_known_data") {
         fbFileList = payload.files || [];
         serverTopics = payload.topics || [];
+        saveTopicsLocal(serverTopics);
         // Refresh panel if showing
         const functionType = document.getElementById("functionSelect").value;
         if (functionType === "llm_chat" || functionType === "file_browser") {
@@ -751,6 +760,7 @@ function onMessage(msg) {
 
     if (type === "topics") {
         serverTopics = payload.topics || [];
+        saveTopicsLocal(serverTopics);
         if (document.getElementById("functionSelect").value === "llm_chat") {
             const panel = document.getElementById("dynamicPanel");
             // Only re-render if modals aren't open to avoid UX jump
@@ -762,6 +772,16 @@ function onMessage(msg) {
                 renderTopicSelectList();
             }
         }
+        return;
+    }
+
+    if (type === "topic_sync_result") {
+        serverTopics = payload.topics || [];
+        saveTopicsLocal(serverTopics);
+        if (document.getElementById("topicSelectModal").classList.contains("visible")) {
+            renderTopicSelectList();
+        }
+        setStatus("connected", `Topics synced — ${serverTopics.length} topic(s).`);
         return;
     }
 
@@ -1136,6 +1156,21 @@ function renderMessages() {
 
     // Auto-scroll to bottom
     container.scrollTop = container.scrollHeight;
+}
+
+// --- Topics (persistence) ---
+
+function loadTopicsFromLocal() {
+    try {
+        const cached = localStorage.getItem("procMessenger_topics");
+        if (cached) serverTopics = JSON.parse(cached);
+    } catch {}
+}
+
+function saveTopicsLocal(topics) {
+    try {
+        localStorage.setItem("procMessenger_topics", JSON.stringify(topics));
+    } catch {}
 }
 
 // --- Nicknames (persistence) ---
@@ -2039,6 +2074,15 @@ function saveTopic() {
     } else {
         setStatus("error", "Not connected to server.");
     }
+}
+
+function syncTopics() {
+    if (!wsManager || !wsManager.connected) {
+        setStatus("error", "Not connected to server.");
+        return;
+    }
+    wsManager.send("topic_sync", "server", { topics: serverTopics });
+    setStatus("connected", "Syncing topics...");
 }
 
 function openTopicSelectModal() {
