@@ -29,13 +29,21 @@ except ImportError:
     logger.info("llama-cpp-python not installed - local in-process inference unavailable.")
 
 
-def get_system_prompt():
-    """Read the system prompt from System.md."""
+def get_system_prompt(prompt_key=None):
+    """Read the system prompt file. Uses SYSTEM_PROMPTS dict when a key is given."""
+    path = config.SYSTEM_PROMPT_FILE  # default
+    if prompt_key and prompt_key in config.SYSTEM_PROMPTS:
+        path = config.SYSTEM_PROMPTS[prompt_key]
     try:
-        with open(config.SYSTEM_PROMPT_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return f.read().strip()
     except FileNotFoundError:
         return "You are a helpful AI assistant."
+
+
+def get_available_system_prompts():
+    """Return the list of system prompt options for the UI."""
+    return [{"value": k, "label": k} for k in config.SYSTEM_PROMPTS]
 
 
 def get_available_providers():
@@ -164,7 +172,7 @@ async def _fetch_anthropic_models(prov):
     return models if models else [{"id": prov["model"], "name": prov["model"]}]
 
 
-async def chat_completion(provider_key, messages, mode="ask", model=None, injected_prompt=""):
+async def chat_completion(provider_key, messages, mode="ask", model=None, injected_prompt="", system_prompt_key=None):
     """
     Send a chat completion request to the specified provider.
 
@@ -174,6 +182,7 @@ async def chat_completion(provider_key, messages, mode="ask", model=None, inject
         mode: Current LLM mode ("ask", "agent", "plan")
         model: Specific model ID to use. Falls back to provider default if None.
         injected_prompt: Any additional system prompt information to inject.
+        system_prompt_key: Key into config.SYSTEM_PROMPTS to select the prompt file.
 
     Returns:
         str: The assistant's response text
@@ -185,7 +194,7 @@ async def chat_completion(provider_key, messages, mode="ask", model=None, inject
     # Use caller-specified model, fall back to config default
     effective_model = model if model else prov["model"]
 
-    system_prompt = get_system_prompt()
+    system_prompt = get_system_prompt(system_prompt_key)
     if injected_prompt:
         system_prompt += "\n" + injected_prompt
 

@@ -16,6 +16,7 @@ let selectedTargets = new Set();   // Multi-select: which computers to send to
 // --- LLM State ---
 let llmProviders = [];             // Available LLM providers from llm_announce
 let llmModes = [];                 // Available LLM modes from llm_announce
+let llmSystemPrompts = [];         // Available system prompts from llm_announce
 let llmActiveChatName = "";        // Currently active chat name
 let llmChatHistory = [];           // Messages in the active LLM chat
 let llmChatList = [];              // List of saved chat sessions
@@ -526,6 +527,10 @@ function renderLlmPanel(panel) {
         ? llmModes.map(m => `<option value="${escapeHtml(m.value)}">${escapeHtml(m.label)}</option>`).join("")
         : '<option value="ask">Ask</option><option value="agent">Agent</option><option value="plan">Plan</option>';
 
+    const systemPromptOpts = llmSystemPrompts.length > 0
+        ? llmSystemPrompts.map(sp => `<option value="${escapeHtml(sp.value)}"${sp.value === "Default" ? " selected" : ""}>${escapeHtml(sp.label)}</option>`).join("")
+        : '<option value="Default">Default</option>';
+
     // Get display names of selected topics
     const selectedTopics = serverTopics.filter(t => selectedTopicIds.has(t.id));
     const topicsDisplayText = selectedTopics.length > 0 
@@ -548,6 +553,10 @@ function renderLlmPanel(panel) {
                 <div class="llm-field" style="flex:1">
                     <label>Model:</label>
                     <select id="llmModel" class="full-width"><option value="">Loading models...</option></select>
+                </div>
+                <div class="llm-field">
+                    <label>Prompt:</label>
+                    <select id="llmSystemPrompt">${systemPromptOpts}</select>
                 </div>
                 <button id="btnRefreshModels" class="btn-secondary" style="align-self:flex-end" title="Refresh model list">&#x21BB;</button>
             </div>
@@ -789,6 +798,7 @@ function onMessage(msg) {
     if (type === "llm_announce") {
         llmProviders = payload.providers || [];
         llmModes = payload.modes || [];
+        llmSystemPrompts = payload.systemPrompts || [];
         // Re-render panel if LLM Chat is selected
         if (document.getElementById("functionSelect").value === "llm_chat") {
             updateDynamicPanel();
@@ -800,6 +810,7 @@ function onMessage(msg) {
     if (type === "llm_modes") {
         llmProviders = payload.providers || llmProviders;
         llmModes = payload.modes || llmModes;
+        llmSystemPrompts = payload.systemPrompts || llmSystemPrompts;
         if (document.getElementById("functionSelect").value === "llm_chat") {
             updateDynamicPanel();
         }
@@ -1230,6 +1241,7 @@ function handleLlmSend() {
     const provider = document.getElementById("llmProvider")?.value || "llama";
     const mode = document.getElementById("llmMode")?.value || "ask";
     const model = document.getElementById("llmModel")?.value || "";
+    const systemPrompt = document.getElementById("llmSystemPrompt")?.value || "Default";
     
     // Include selected topics in payload
     const selectedTopics = serverTopics.filter(t => selectedTopicIds.has(t.id));
@@ -1240,6 +1252,7 @@ function handleLlmSend() {
         provider: provider,
         mode: mode,
         model: model,
+        systemPrompt: systemPrompt,
         topics: selectedTopics
     });
 

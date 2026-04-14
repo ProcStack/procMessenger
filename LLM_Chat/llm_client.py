@@ -18,7 +18,8 @@ import websockets
 
 import config
 from llm_providers import (
-    chat_completion, get_available_providers, get_system_prompt, fetch_all_models,
+    chat_completion, get_available_providers, get_system_prompt,
+    get_available_system_prompts, fetch_all_models,
     scan_local_models, download_model,
 )
 from chat_history import (
@@ -81,9 +82,11 @@ async def handle_llm_message(ws, msg):
         model_map = await fetch_all_models()
         for p in providers:
             p["models"] = model_map.get(p["value"], [])
+        system_prompts = get_available_system_prompts()
         reply = build_message("llm_modes", config.CLIENT_NAME, source, {
             "modes": modes,
             "providers": providers,
+            "systemPrompts": system_prompts,
         }, flags)
         await ws.send(reply)
         return
@@ -168,6 +171,7 @@ async def handle_llm_message(ws, msg):
         provider = payload.get("provider", "llama")
         mode = payload.get("mode", "ask")
         model = payload.get("model", None)  # Specific model chosen by user
+        system_prompt_key = payload.get("systemPrompt", None)
 
         if not chat_name or not user_message:
             reply = build_message("error", config.CLIENT_NAME, source, {
@@ -212,7 +216,7 @@ async def handle_llm_message(ws, msg):
                 for t in topics:
                     injected_prompt += f"--- {t['name']} ---\n{t['info']}\n\n"
             
-            response_text = await chat_completion(provider, llm_messages, mode=mode, model=model, injected_prompt=injected_prompt)
+            response_text = await chat_completion(provider, llm_messages, mode=mode, model=model, injected_prompt=injected_prompt, system_prompt_key=system_prompt_key)
         except Exception as e:
             logger.error(f"LLM completion error: {e}")
             response_text = f"Error: LLM completion failed - {e}"
@@ -358,10 +362,12 @@ async def client_loop():
             logger.info(f"Registered. Providers: {[p['label'] for p in providers]}")
 
             # Announce to the room
+            system_prompts = get_available_system_prompts()
             announce = build_message("llm_announce", config.CLIENT_NAME, "all", {
                 "message": "LLM Chat is online and ready.",
                 "providers": providers,
                 "modes": modes,
+                "systemPrompts": system_prompts,
             })
             await ws.send(announce)
 

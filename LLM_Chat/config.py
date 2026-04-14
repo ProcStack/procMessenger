@@ -1,5 +1,6 @@
 # LLM_Chat Configuration
 
+import json
 import os
 from dotenv import load_dotenv
 
@@ -46,6 +47,20 @@ SYSTEM_PROMPT_FILE = os.path.join(os.path.dirname(__file__), "System.md")
 MESSAGE_FUNCTIONS_FILE = os.path.join(os.path.dirname(__file__), "message_functions.json")
 CHAT_HISTORY_DIR = os.path.join(os.path.dirname(__file__), "chat_history")
 ATTACHMENTS_DIR = os.path.join(os.path.dirname(__file__), "attachments")
+
+# --- System Prompts ---
+# Build a dict of label -> absolute path.  "Default" always maps to System.md.
+_base_dir = os.path.dirname(__file__)
+SYSTEM_PROMPTS = {"Default": SYSTEM_PROMPT_FILE}
+_raw_prompts = os.getenv("SYSTEM_PROMPTS", "")
+if _raw_prompts:
+    try:
+        _user_prompts = json.loads(_raw_prompts)
+        for _label, _path in _user_prompts.items():
+            _abs = _path if os.path.isabs(_path) else os.path.join(_base_dir, _path)
+            SYSTEM_PROMPTS[_label] = _abs
+    except (json.JSONDecodeError, AttributeError):
+        pass  # Malformed - silently fall back to default only
 
 # --- Local Models ---
 # Default project-local directory for downloaded models
