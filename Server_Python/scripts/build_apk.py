@@ -62,6 +62,17 @@ APK_SRC = os.path.join(
 GRADLE_TIMEOUT = 600  # seconds – 10 minutes; first build may download dependencies
 
 # ---------------------------------------------------------------------------
+# Client name - read from config so ownerClient stays in sync with the
+# registered WebSocket client name (avoids OWNER_NOT_CONNECTED errors).
+# ---------------------------------------------------------------------------
+sys.path.insert(0, SERVER_DIR)
+try:
+    import config as _client_config
+    _CLIENT_NAME = _client_config.CLIENT_NAME
+except ImportError:
+    _CLIENT_NAME = "Python Runtime"
+
+# ---------------------------------------------------------------------------
 # Metadata helpers (mirrors Server_Python/handlers.py)
 # ---------------------------------------------------------------------------
 
@@ -232,8 +243,8 @@ def main() -> int:
             "target":      "server",
             "sentAt":      now_iso,
             "storedAt":    now_iso,
-            "storedBy":    "python-client",
-            "ownerClient": "python-client",
+            "storedBy":    _CLIENT_NAME,
+            "ownerClient": _CLIENT_NAME,
         }
     )
 

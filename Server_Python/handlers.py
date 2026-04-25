@@ -332,6 +332,9 @@ def handle_run_script(payload):
             if line.startswith(_REGISTER_PREFIX):
                 try:
                     record = json.loads(line[len(_REGISTER_PREFIX):].strip())
+                    # Always stamp ownerClient with this client's registered name so the
+                    # server can relay file_fetch requests back to us correctly.
+                    record["ownerClient"] = config.CLIENT_NAME
                     _upsert_meta(record)
                     registered_files.append(record)
                     logger.info(f"[SCRIPT] Registered file: {record.get('fileName')}")

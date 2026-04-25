@@ -1684,16 +1684,32 @@ function fbReceiveChunk(payload) {
 
     if (tracker.received < totalChunks) return;
 
-    // All chunks received - reassemble.
-    // Each chunk is independently base64-encoded, so intermediate chunks may have
-    // trailing '=' padding. Strip padding from every chunk before joining, then
-    // re-pad the final string to a multiple of 4 so atob() accepts it.
-    const ordered = [];
+    // All chunks received - decode each chunk from base64 to binary individually,
+    // then concatenate the byte arrays.  Simply stripping '=' and joining base64
+    // strings is incorrect when chunks are not exact multiples of 3 bytes, which
+    // causes data corruption for multi-chunk binary files (e.g. APKs).
+    const binaryParts = [];
+    let totalBytes = 0;
     for (let i = 0; i < totalChunks; i++) {
-        ordered.push((tracker.chunks[i] || "").replace(/=+$/, ""));
+        const chunkB64 = tracker.chunks[i] || "";
+        const binaryStr = atob(chunkB64);
+        const arr = new Uint8Array(binaryStr.length);
+        for (let j = 0; j < binaryStr.length; j++) arr[j] = binaryStr.charCodeAt(j);
+        binaryParts.push(arr);
+        totalBytes += arr.length;
     }
-    const raw = ordered.join("");
-    const fullBase64 = raw + "=".repeat((4 - (raw.length % 4)) % 4);
+    const combined = new Uint8Array(totalBytes);
+    let byteOffset = 0;
+    for (const part of binaryParts) { combined.set(part, byteOffset); byteOffset += part.length; }
+
+    // Re-encode the concatenated bytes as a single base64 string.
+    // Process in 32 KB slices to avoid call-stack overflows on large files.
+    let rawBinary = "";
+    const SLICE = 0x8000;
+    for (let i = 0; i < combined.length; i += SLICE) {
+        rawBinary += String.fromCharCode.apply(null, combined.subarray(i, i + SLICE));
+    }
+    const fullBase64 = btoa(rawBinary);
     const meta = tracker.meta || {};
 
     delete fbInFlight[fileId];
@@ -1702,10 +1718,7 @@ function fbReceiveChunk(payload) {
         fbDownloadFile(fullBase64, meta.fileName || "download", meta.fileType || "application/octet-stream");
     } else if (tracker.mode === "edit") {
         try {
-            const binary = atob(fullBase64);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            const text = new TextDecoder().decode(bytes);
+            const text = new TextDecoder().decode(combined);
             fbOpenNewFileModal(meta.fileName || "file.txt", text, fileId);
         } catch (e) {
             setStatus("error", "Could not decode file for editing: " + e.message);
