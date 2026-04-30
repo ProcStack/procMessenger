@@ -375,6 +375,19 @@ async function handleMessage(msg) {
         return ["edit_story", handleEditStory(payload)];
     }
 
+    // Viewport commands are handled exclusively by branchShredder.
+    // If this client receives one, the mobile app targeted the wrong client.
+    if (type === "viewport" || type === "viewport_snapshot" || type === "viewport_info" || type === "viewport_tap") {
+        console.warn(
+            `[VIEWPORT] Received '${type}' but this client does not support viewport commands. ` +
+            "Ensure branchShredder is connected and selected as the target."
+        );
+        return ["error", {
+            code: "NOT_SUPPORTED",
+            message: `'${type}' is a viewport command handled by branchShredder. Please target branchShredder instead of this procMessenger client.`,
+        }];
+    }
+
     if (type === "file_list") {
         return ["file_list", handleFileList()];
     }

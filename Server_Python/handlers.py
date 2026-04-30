@@ -454,6 +454,21 @@ def handle_message(msg):
             "message": "Gather Research is not yet implemented on this Python client.",
         }
 
+    # Viewport commands are handled exclusively by branchShredder.
+    # If this client receives one, the mobile app targeted the wrong client.
+    if msg_type in ("viewport", "viewport_snapshot", "viewport_info", "viewport_tap"):
+        logger.warning(
+            f"Received '{msg_type}' but this client does not support viewport commands. "
+            "Ensure branchShredder is connected and selected as the target."
+        )
+        return "error", {
+            "code": "NOT_SUPPORTED",
+            "message": (
+                f"'{msg_type}' is a viewport command handled by branchShredder. "
+                "Please target branchShredder instead of this procMessenger client."
+            ),
+        }
+
     if msg_type == "file_list":
         return "file_list", handle_file_list()
 
