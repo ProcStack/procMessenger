@@ -1158,6 +1158,91 @@ Sent by the server to the original sender confirming the file was stored.
 
 ---
 
+### `blog_entry`
+Create or edit a blog entry file on the `procstack.github.io` static site.
+Handled exclusively by the `blog-client` (runs from `procstack.github.io/procMessenger/blog_client.js`).
+
+**Request — Save** (mobile → blog-client):
+```json
+{
+  "type": "blog_entry",
+  "target": "blog-client",
+  "payload": {
+    "action": "save",
+    "name":   "Entry title",
+    "tags":   ["theory", "keyword", "another-tag"],
+    "date":   "YYYY-MM-DD",
+    "body":   "HTML-formatted body string",
+    "eid":    "A"
+  }
+}
+```
+> `eid` is optional. When omitted the client auto-assigns the next letter for the given date.
+> Sending a `save` for an already-existing file (same `date` + `eid`) **overwrites** it (edit mode).
+
+**Request — Verify** (mobile → blog-client):
+```json
+{
+  "type": "blog_entry",
+  "target": "blog-client",
+  "payload": {
+    "action": "verify",
+    "date":   "YYYY-MM-DD",
+    "eid":    "A"
+  }
+}
+```
+
+**Response — Saved** (blog-client → mobile):
+```json
+{
+  "type": "blog_entry",
+  "source": "blog-client",
+  "target": "mobile-phone",
+  "payload": {
+    "status":       "saved",
+    "filePath":     "2026-05-04_A.js",
+    "eid":          "A",
+    "isEdit":       false,
+    "indexUpdated": true,
+    "indexWarning": null
+  }
+}
+```
+
+**Response — Verified** (blog-client → mobile):
+```json
+{
+  "type": "blog_entry",
+  "source": "blog-client",
+  "target": "mobile-phone",
+  "payload": {
+    "status":          "verified",
+    "valid":           true,
+    "filePath":        "2026-05-04_A.js",
+    "checks":          [{ "label": "import blogEntryBase", "pass": true }],
+    "failedChecks":    [],
+    "indexRegistered": true,
+    "error":           null
+  }
+}
+```
+
+**Response — Error** (blog-client → mobile):
+```json
+{
+  "type": "blog_entry",
+  "source": "blog-client",
+  "target": "mobile-phone",
+  "payload": {
+    "status":  "error",
+    "message": "name and date are required."
+  }
+}
+```
+
+---
+
 ## Attachment Transfer (Legacy)
 
 Files are transferred over WebSocket using chunked base64 encoding.

@@ -402,7 +402,29 @@ async function handleMessage(msg) {
         return ["__multi__", handleFileFetch(payload)];
     }
 
+    if (type === "blog_entry") {
+        return ["blog_entry", handleBlogEntry(payload)];
+    }
+
     return [null, null];
+}
+
+/**
+ * Handle a blog_entry message.
+ * This Node.js client passes the message through; the staging blog-client
+ * performs the actual file creation.  When that client is connected and
+ * targeted directly, the server routes the message there without touching
+ * this handler.  This stub exists so any generic client receives a graceful
+ * "not supported" response rather than silence.
+ */
+function handleBlogEntry(payload) {
+    const action = payload.action || "save";
+    console.log(`[BLOG] action=${action} name="${payload.name || ""}" date="${payload.date || ""}"`);
+    return {
+        status: "error",
+        message: "blog_entry is not handled by this client. Target the blog-client instead.",
+        action,
+    };
 }
 
 module.exports = {
@@ -415,4 +437,5 @@ module.exports = {
     receiveFileChunk,
     readFileAsChunks,
     deleteFile,
+    handleBlogEntry,
 };

@@ -481,6 +481,9 @@ def handle_message(msg):
     if msg_type == "file_delete":
         return handle_file_delete(payload)
 
+    if msg_type == "blog_entry":
+        return "blog_entry", handle_blog_entry(payload)
+
     return None, None
 
 
@@ -519,4 +522,23 @@ def handle_file_delete(payload):
         "fileId": file_id,
         "fileName": record.get("fileName", ""),
         "deleted": True,
+    }
+
+
+def handle_blog_entry(payload):
+    """
+    Handle a blog_entry message.
+    This Python client passes a graceful error; the actual blog file creation
+    is performed by the Node.js blog-client in procstack.github.io/procMessenger/.
+    When that client is connected and targeted directly the server routes the
+    message there without calling this handler.
+    """
+    action = payload.get("action", "save")
+    name   = payload.get("name", "")
+    date   = payload.get("date", "")
+    logger.info(f"[BLOG] action={action} name={name!r} date={date!r}")
+    return {
+        "status": "error",
+        "message": "blog_entry is not handled by this client. Target the blog-client instead.",
+        "action": action,
     }
