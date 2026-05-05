@@ -97,6 +97,7 @@ async def client_loop():
             reg_msg = build_message("register", config.CLIENT_NAME, "server", {
                 "clientType": "python",
                 "capabilities": config.CAPABILITIES,
+                "functions": ["run_script"],
                 "hostname": socket.gethostname(),
                 "nickname": "",
                 "fileList": get_file_list(),

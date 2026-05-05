@@ -353,6 +353,7 @@ async def client_loop():
             reg_msg = build_message("register", config.CLIENT_NAME, "server", {
                 "clientType": config.CLIENT_TYPE,
                 "capabilities": config.CAPABILITIES,
+                "functions": ["llm_chat", "gather_research"],
                 "hostname": socket.gethostname(),
                 "nickname": "LLM Chat",
                 "availableProviders": providers,

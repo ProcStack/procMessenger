@@ -376,11 +376,11 @@ function updateFunctionDropdownForClient(clientName) {
             opt.textContent = mt.label;
             select.appendChild(opt);
         });
-        // Restore previous selection if still valid
+        // Restore previous selection if still valid, otherwise default to first
         if (available.find(mt => mt.value === currentVal)) {
             select.value = currentVal;
         } else {
-            select.value = "";
+            select.value = available[0].value || "";
         }
     }
     updateDynamicPanel();
