@@ -14,6 +14,11 @@
             "value": "plan",
             "label": "Plan",
             "description": "Planning mode. The LLM breaks down your request into steps and outlines an action plan before executing."
+        },
+        {
+            "value": "gather_research",
+            "label": "Gather Research",
+            "description": "Research mode. Uses Tavily web search guided by your conversation to find relevant information. Results appear as interactive cards you can index or parse."
         }
     ]
 }

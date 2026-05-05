@@ -191,14 +191,191 @@ Request a computer to perform web research using a local LLM + Search API + Pupp
       {
         "url": "https://example.com/article",
         "title": "Quantum Computing Breakthrough",
-        "summary": "LLM-generated summary of the page content..."
+        "summary": "LLM-generated summary of the page content...",
+        "keywords": ["quantum", "error-correction", "qubit"]  // optional; LLM-extracted
       }
     ]
   }
 }
 ```
 
-### `edit_story`
+> **procIndex integration:** When a `gather_research` task completes, the result set can be forwarded
+> directly to the procIndex service for automatic ingestion by sending the completed payload with
+> `"target": "procIndex"`.  The server routes it normally; procIndex treats any `gather_research`
+> message with `payload.status === "complete"` identically to an `ingest_batch` action.
+
+---
+
+## procIndex
+
+Handled by the **procIndex** service.  All index operations use the single message type
+`"procIndex"` with an `action` field inside the payload.  Responses always echo the same
+type and action so the sender can correlate them.
+
+procIndex registers with `functions: ["procIndex"]` and broadcasts an `announce` action
+immediately after connecting.
+
+### `procIndex` – announce (procIndex → all)
+
+Sent by procIndex on connection and after any bulk operation that changes the index size.
+
+```json
+{
+  "type": "procIndex",
+  "source": "procIndex",
+  "target": "all",
+  "payload": {
+    "action": "announce",
+    "message": "procIndex is online.",
+    "totalEntries": 42,
+    "indexed": 35,
+    "toParse": 7,
+    "capabilities": ["procIndex", "gather_research"]
+  }
+}
+```
+
+### `procIndex` – search
+
+**Request** (any client → procIndex):
+```json
+{
+  "type": "procIndex",
+  "target": "procIndex",
+  "payload": {
+    "action": "search",
+    "query": "dreaming rem sleep theta waves",
+    "maxResults": 10,
+    "includeStatus": ["indexed", "toParse"]
+  }
+}
+```
+
+`includeStatus` is optional; omit to search both statuses.
+
+**Response**:
+```json
+{
+  "type": "procIndex",
+  "payload": {
+    "action": "search",
+    "query": "dreaming rem sleep theta waves",
+    "totalFound": 4,
+    "results": [
+      {
+        "id": "uuid",
+        "title": "REM Sleep Cycles",
+        "status": "indexed",
+        "fileType": "text",
+        "keywords": ["rem", "sleep", "theta", "cycles"],
+        "similarity": 0.84,
+        "filePath": "nodeIndex/rem_sleep_cycles.md",
+        "linkedIds": ["uuid2", "uuid3"]
+      }
+    ]
+  }
+}
+```
+
+### `procIndex` – get
+
+**Request**:
+```json
+{
+  "type": "procIndex",
+  "target": "procIndex",
+  "payload": { "action": "get", "id": "uuid" }
+}
+```
+
+**Response** includes the full entry object plus `"fileContent"` (raw Markdown string):
+```json
+{
+  "type": "procIndex",
+  "payload": {
+    "action": "get",
+    "entry": { "id": "uuid", "title": "REM Sleep Cycles", "status": "indexed", "keywords": ["rem"], "linkedIds": [] },
+    "fileContent": "# REM Sleep Cycles\n\nFull Markdown content…"
+  }
+}
+```
+
+### `procIndex` – ingest
+
+**Request**:
+```json
+{
+  "type": "procIndex",
+  "target": "procIndex",
+  "payload": {
+    "action": "ingest",
+    "title": "Hypnagogic Hallucinations",
+    "lookupText": "hypnagogic hallucinations sleep onset visual imagery",
+    "content": "Full article text…",
+    "fileType": "text",
+    "sourceUrl": "https://example.com/hypnagogia",
+    "forceStatus": "toParse"
+  }
+}
+```
+
+### `procIndex` – ingest_batch
+
+Bulk-ingest a `gather_research` result set.
+
+**Request**:
+```json
+{
+  "type": "procIndex",
+  "target": "procIndex",
+  "payload": {
+    "action": "ingest_batch",
+    "query": "frontal cortex alpha waves during dreaming",
+    "results": [
+      {
+        "url": "https://…",
+        "title": "Alpha Waves Study",
+        "summary": "…",
+        "keywords": ["alpha-waves", "sleep", "dreaming"]  // optional — skips auto-extraction in procIndex if provided
+      }
+    ]
+  }
+}
+```
+
+### `procIndex` – list
+
+**Request**: `{ "action": "list", "filter": { "status": "toParse" } }` — `filter.status` is optional.
+
+**Response**: `{ "action": "list", "total": 12, "entries": [ … ] }`
+
+### `procIndex` – move
+
+Promote `toParse` → `indexed` or demote.
+
+**Request**: `{ "action": "move", "id": "uuid", "targetStatus": "indexed" }`
+
+**Response**: `{ "action": "move", "id": "uuid", "newStatus": "indexed", "filePath": "nodeIndex/…" }`
+
+### `procIndex` – update
+
+Patch entry fields; passing `lookupText` triggers a full TF-IDF rebuild.
+
+**Request**: `{ "action": "update", "id": "uuid", "title": "New Title", "lookupText": "revised text", "content": "New body" }`
+
+### `procIndex` – keywords
+
+**Request**: `{ "action": "keywords" }`
+
+**Response**: `{ "action": "keywords", "total": 87, "keywords": [ { "keyword": "dreaming", "count": 5, "entryIds": ["…"] } ] }`
+
+### `procIndex` – delete
+
+**Request**: `{ "action": "delete", "id": "uuid" }`
+
+**Response**: `{ "action": "delete", "id": "uuid", "deleted": true }`
+
+---
 Relay messages between the mobile app and a story editor program (Python-based).
 
 **Message** (mobile → story-editor):
@@ -1368,6 +1545,7 @@ The port is configurable in each component's config file:
 
 | Date       | Change |
 |------------|--------|
+| 2026-05-05 | Added `procIndex` message type section covering all actions (announce, search, get, ingest, ingest_batch, list, move, update, keywords, delete); added procIndex integration note to `gather_research`; mobile app now includes procIndex Search function with keyword search panel and entry viewer modal |
 | 2026-05-05 | Added `functions` field to `register` and `client_list`; server now routes messages only to clients advertising the relevant function; `file_list` updates broadcast only to `mobile` clients; `server_known_data` now includes `clients`; file operations are server-only (application clients never receive file messages); added `TARGET_FUNCTION_UNSUPPORTED` error code; mobile app redesigned with Client/Files/Logs tab layout; file browser moved to dedicated Files tab |
 | 2026-03-20 | Added File Transfer System: `file_list_announce`, `file_list`, `file_fetch`, `file_transfer_data`, `file_receive`, `file_receive_complete`; updated `register` to carry `fileList`; added `file_transfers` capability; added shared `transfers/` directory with `metadata.json` |
 | 2026-03-19 | Added `find_nodes`, `get_node`, `update_node` node management types |

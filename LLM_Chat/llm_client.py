@@ -20,19 +20,43 @@ import config
 from llm_providers import (
     chat_completion, get_available_providers, get_system_prompt,
     get_available_system_prompts, fetch_all_models,
-    scan_local_models, download_model,
+    scan_local_models, download_model, extract_search_query,
 )
 from chat_history import (
     list_chats, create_chat, get_chat, get_chat_messages,
     append_message, delete_chat, extract_images, extract_links,
 )
 from attachments import receive_chunk, prepare_file_for_send, check_file_size
+from tavily_search import tavily_search
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logger = logging.getLogger("procMessenger.llm.client")
+
+# ---------------------------------------------------------------------------
+# Module-level runtime state
+# ---------------------------------------------------------------------------
+
+# Tracks all currently connected procMessenger clients (updated from client_list
+# and client_announce messages). Maps client name -> client info dict.
+_connected_clients: dict = {}
+
+
+def _find_client_by_type(client_type: str) -> str | None:
+    """Return the name of the first connected client whose clientType matches."""
+    for name, c in _connected_clients.items():
+        if c.get("clientType") == client_type:
+            return name
+    return None
+
+
+# Stores web-research snippets that the user has chosen to "parse" into a chat.
+# These are injected as context in subsequent LLM calls but are NOT saved to the
+# chat's message history.
+# Maps chat_name -> list of {url, title, content}
+_parsed_web_contexts: dict = {}
 
 
 def build_message(msg_type, source, target, payload, flags=None):
@@ -198,6 +222,13 @@ async def handle_llm_message(ws, msg):
         history = get_chat_messages(chat_name)
         llm_messages = [{"role": m["role"], "content": m["content"]} for m in history]
 
+        # --- Gather Research: separate pipeline (Tavily search, not LLM reply) ---
+        if mode == "gather_research":
+            await _handle_gather_research(
+                ws, chat_name, source, flags, provider, model, llm_messages
+            )
+            return
+
         # Send "thinking" status
         thinking_reply = build_message("llm_chat", config.CLIENT_NAME, source, {
             "chatName": chat_name,
@@ -215,7 +246,14 @@ async def handle_llm_message(ws, msg):
                 injected_prompt = "\n\nAdditional context for this conversation:\n"
                 for t in topics:
                     injected_prompt += f"--- {t['name']} ---\n{t['info']}\n\n"
-            
+
+            # Inject any parsed web-research contexts for this chat
+            web_ctxs = _parsed_web_contexts.get(chat_name, [])
+            if web_ctxs:
+                injected_prompt += "\n\nParsed web research (use as background knowledge – do not re-summarise):\n"
+                for ctx in web_ctxs:
+                    injected_prompt += f"--- {ctx['title']} ({ctx['url']}) ---\n{ctx['content']}\n\n"
+
             response_text = await chat_completion(provider, llm_messages, mode=mode, model=model, injected_prompt=injected_prompt, system_prompt_key=system_prompt_key)
         except Exception as e:
             logger.error(f"LLM completion error: {e}")
@@ -237,6 +275,45 @@ async def handle_llm_message(ws, msg):
             "links": response_meta["links"],
         }, flags)
         await ws.send(reply)
+        return
+
+    # --- Gather Research: action on a search result (index / parse) ---
+    if msg_type == "gather_research_action":
+        await _handle_gather_research_action(ws, msg)
+        return
+
+    # --- Gather Research: direct trigger from mobile function panel ---
+    # The mobile app sends type "gather_research" with {query, maxResults, chatName?}
+    # when the LLM client is the selected target. We run the full pipeline.
+    if msg_type == "gather_research":
+        query = payload.get("query", "").strip()
+        chat_name = payload.get("chatName", "")
+        # Use the first enabled provider — prefer whatever is actually configured
+        _default_provider = next(
+            (k for k, v in config.LLM_PROVIDERS.items() if v.get("enabled")),
+            "llama",
+        )
+        provider = payload.get("provider", _default_provider)
+        model = payload.get("model", None)
+        if not query:
+            await ws.send(build_message("error", config.CLIENT_NAME, source, {
+                "code": "INVALID_MESSAGE",
+                "message": "query is required for gather_research.",
+                "referenceId": msg_id,
+            }))
+            return
+        # Ensure a chat exists to anchor the results
+        if not chat_name:
+            chat_name = query[:40].replace("/", " ").strip() or "Research"
+        chat = get_chat(chat_name)
+        if chat is None:
+            chat = create_chat(chat_name, provider=provider, mode="gather_research")
+        # Treat the query as a user message so it appears in the chat
+        append_message(chat_name, "user", query)
+        # Pass the query directly — no need to ask the LLM to reformulate it
+        await _handle_gather_research(
+            ws, chat_name, source, flags, provider, model, [], raw_query=query
+        )
         return
 
     # --- Attachment: receive file chunk ---
@@ -271,6 +348,294 @@ async def handle_llm_message(ws, msg):
     logger.warning(f"Unhandled message type: {msg_type}")
 
 
+# ---------------------------------------------------------------------------
+# Gather Research helpers
+# ---------------------------------------------------------------------------
+
+async def _handle_gather_research(
+    ws,
+    chat_name: str,
+    source: str,
+    flags: dict,
+    provider: str,
+    model,
+    llm_messages: list,
+    raw_query: str | None = None,
+) -> None:
+    """
+    Gather Research pipeline:
+      1. Extract a precise search query (or use ``raw_query`` directly).
+      2. Call Tavily with that query.
+      3. Return a brief acknowledgement via ``llm_chat`` (saved to history).
+      4. Return the raw result list via ``gather_research_results`` (NOT saved).
+    """
+    if not config.TAVILY_API_KEY:
+        # Save a helpful error message to chat history
+        err_text = (
+            "**Gather Research** requires a Tavily API key.\n\n"
+            "Set `TAVILY_API_KEY` in your `.env` file and restart the LLM Chat service."
+        )
+        append_message(chat_name, "assistant", err_text)
+        await ws.send(build_message("llm_chat", config.CLIENT_NAME, source, {
+            "chatName": chat_name,
+            "status": "complete",
+            "message": err_text,
+            "images": [],
+            "links": [],
+        }, flags))
+        return
+
+    # Step 1: Derive search query — use raw_query if already known, otherwise ask the LLM
+    await ws.send(build_message("llm_chat", config.CLIENT_NAME, source, {
+        "chatName": chat_name,
+        "status": "thinking",
+        "message": "",
+    }, flags))
+
+    if raw_query:
+        search_query = raw_query
+    else:
+        try:
+            search_query = await extract_search_query(provider, llm_messages, model=model)
+        except Exception as exc:
+            logger.error("extract_search_query error: %s", exc)
+            search_query = ""
+        # Detect silent error strings returned by _openai_compatible_completion
+        if search_query.startswith(("Error from ", "Connection error to ", "Error ")):
+            logger.warning("extract_search_query returned provider error, falling back: %.120s", search_query)
+            search_query = ""
+        if not search_query:
+            for m in reversed(llm_messages):
+                if m.get("role") == "user":
+                    search_query = m["content"][:300]
+                    break
+
+    if not search_query:
+        err_text = "Could not derive a search query from the conversation."
+        append_message(chat_name, "assistant", err_text)
+        await ws.send(build_message("llm_chat", config.CLIENT_NAME, source, {
+            "chatName": chat_name,
+            "status": "complete",
+            "message": err_text,
+            "images": [],
+            "links": [],
+        }, flags))
+        return
+
+    # Step 2: Tavily search
+    try:
+        search_result = await tavily_search(
+            query=search_query,
+            api_key=config.TAVILY_API_KEY,
+            max_results=config.TAVILY_MAX_RESULTS,
+            search_depth=config.TAVILY_SEARCH_DEPTH,
+        )
+    except Exception as exc:
+        logger.error("Tavily search error: %s", exc)
+        search_result = {"query": search_query, "results": [], "error": str(exc)}
+
+    results = search_result.get("results", [])
+    error   = search_result.get("error", "")
+
+    # Step 3: Build acknowledgement text (saved to chat history)
+    if error:
+        ack_text = (
+            f"Search for **{search_query}** failed: {error}\n\n"
+            "Please try a different query or check the Tavily API key."
+        )
+    elif not results:
+        ack_text = (
+            f"Searched Tavily for **{search_query}** — no results found.\n\n"
+            "Try rephrasing or broadening the query."
+        )
+    else:
+        ack_text = (
+            f"Searching Tavily for: **{search_query}**\n\n"
+            f"Found **{len(results)}** result(s). "
+            "Tap any result card below to index or parse its contents."
+        )
+
+    append_message(chat_name, "assistant", ack_text,
+                   metadata={"images": [], "links": []})
+    await ws.send(build_message("llm_chat", config.CLIENT_NAME, source, {
+        "chatName": chat_name,
+        "status": "complete",
+        "message": ack_text,
+        "images": [],
+        "links": [],
+    }, flags))
+
+    # Step 4: Assign stable result IDs and send the results payload
+    for r in results:
+        r["resultId"] = str(uuid.uuid4())
+
+    await ws.send(build_message("gather_research_results", config.CLIENT_NAME, source, {
+        "chatName":    chat_name,
+        "searchQuery": search_query,
+        "totalFound":  len(results),
+        "results":     results,
+        "error":       error,
+    }, flags))
+
+
+async def _handle_gather_research_action(ws, msg: dict) -> None:
+    """
+    Handle a gather_research_action message from the mobile app.
+
+    Actions
+    -------
+    ``index``  – summarise the snippet via LLM and forward to procIndex.
+    ``parse``  – store the snippet as injected context for subsequent chats.
+    """
+    payload  = msg["payload"]
+    source   = msg.get("source", "")
+    msg_id   = msg.get("id", "")
+    flags    = {"correlationId": msg_id}
+
+    action    = payload.get("action", "")
+    chat_name = payload.get("chatName", "")
+    result_id = payload.get("resultId", "")
+    url       = payload.get("url", "")
+    title     = payload.get("title", "")
+    snippet   = payload.get("snippet", "")
+    provider  = payload.get("provider", "llama")
+    model     = payload.get("model", None)
+
+    if action == "index":
+        await _do_index_result(
+            ws, source, flags, chat_name, result_id,
+            url, title, snippet, provider, model,
+        )
+    elif action == "parse":
+        await _do_parse_result(
+            ws, source, flags, chat_name, result_id, url, title, snippet,
+        )
+    else:
+        await ws.send(build_message("error", config.CLIENT_NAME, source, {
+            "code":        "INVALID_MESSAGE",
+            "message":     f"Unknown gather_research_action action '{action}'.",
+            "referenceId": msg_id,
+        }))
+
+
+async def _do_index_result(
+    ws, source, flags, chat_name, result_id,
+    url, title, snippet, provider, model,
+) -> None:
+    """Summarise a result via LLM and forward it to procIndex for indexing."""
+    # Find a connected procIndex client by type (name may differ)
+    proc_index_target = _find_client_by_type("procIndex") or (
+        "procIndex" if "procIndex" in _connected_clients else None
+    )
+    if not proc_index_target:
+        logger.warning("Index request: no procIndex client is connected.")
+        await ws.send(build_message("gather_research_action", config.CLIENT_NAME, source, {
+            "action":    "index",
+            "resultId":  result_id,
+            "chatName":  chat_name,
+            "status":    "procIndex_unavailable",
+            "message":   (
+                "procIndex is not connected to the server. "
+                "Start the procIndex service and try again."
+            ),
+        }, flags))
+        return
+
+    # Ask the LLM for a concise summary and clean keywords
+    summary = snippet  # safe fallback
+    keywords: list[str] = []
+    try:
+        summary = await chat_completion(
+            provider,
+            [{
+                "role":    "user",
+                "content": (
+                    f"Summarize the following content in 3–5 sentences. "
+                    f"Output ONLY the summary sentences — no introduction, no preamble, "
+                    f"no 'Here is a summary:' or similar phrase. Start directly with the content.\n\n"
+                    f"Title: {title}\nURL: {url}\n\nContent:\n{snippet}"
+                ),
+            }],
+            mode="ask",
+            model=model,
+        )
+    except Exception as exc:
+        logger.warning("Summary generation failed (using raw snippet): %s", exc)
+
+    try:
+        kw_raw = await chat_completion(
+            provider,
+            [{
+                "role":    "user",
+                "content": (
+                    f"Extract 5–10 specific, meaningful keywords from the following text. "
+                    f"Focus on domain-specific nouns and key concepts. "
+                    f"Exclude generic words like 'observed', 'article', 'content', 'summary', "
+                    f"'sentence', 'concise', or place names unrelated to the topic. "
+                    f"Output ONLY a comma-separated list of keywords, nothing else.\n\n"
+                    f"Title: {title}\n\n{summary}"
+                ),
+            }],
+            mode="ask",
+            model=model,
+        )
+        keywords = [k.strip().lower() for k in kw_raw.split(",") if k.strip()][:10]
+    except Exception as exc:
+        logger.warning("Keyword extraction failed: %s", exc)
+
+    # Forward to procIndex using the existing gather_research protocol
+    await ws.send(build_message("gather_research", config.CLIENT_NAME, proc_index_target, {
+        "status": "complete",
+        "query":  title,
+        "results": [{
+            "url":      url,
+            "title":    title,
+            "summary":  summary,
+            "keywords": keywords,
+        }],
+    }))
+
+    await ws.send(build_message("gather_research_action", config.CLIENT_NAME, source, {
+        "action":   "index",
+        "resultId": result_id,
+        "chatName": chat_name,
+        "status":   "indexed",
+        "title":    title,
+        "message":  f"Sent '{title}' to procIndex for indexing.",
+    }, flags))
+
+
+async def _do_parse_result(
+    ws, source, flags, chat_name, result_id, url, title, snippet,
+) -> None:
+    """Add a search result's content as injected context for the chat."""
+    if chat_name not in _parsed_web_contexts:
+        _parsed_web_contexts[chat_name] = []
+
+    _parsed_web_contexts[chat_name].append({
+        "url":     url,
+        "title":   title,
+        "content": snippet,
+    })
+    logger.info(
+        "Parsed web context added to chat '%s': %s (%s)", chat_name, title, url
+    )
+
+    await ws.send(build_message("gather_research_action", config.CLIENT_NAME, source, {
+        "action":   "parse",
+        "resultId": result_id,
+        "chatName": chat_name,
+        "status":   "added",
+        "title":    title,
+        "url":      url,
+        "message":  (
+            f"Content from '{title}' has been added as context. "
+            "It will inform the LLM's responses for the rest of this chat session."
+        ),
+    }, flags))
+
+
+# ---------------------------------------------------------------------------
 async def handle_model_management(ws, msg):
     """
     Handle local-model management messages:
@@ -385,17 +750,26 @@ async def client_loop():
                 # System messages
                 if msg_type == "client_list":
                     clients = msg.get("payload", {}).get("clients", [])
-                    names = [c["name"] for c in clients]
-                    logger.info(f"Connected clients: {names}")
+                    _connected_clients.clear()
+                    for c in clients:
+                        name = c.get("name", "")
+                        if name:
+                            _connected_clients[name] = c
+                    logger.info(f"Connected clients: {list(_connected_clients.keys())}")
                     continue
 
                 if msg_type == "client_announce":
                     p = msg.get("payload", {})
                     c = p.get("client", {})
-                    if p.get("action") == "joined":
-                        logger.info(f"[ANNOUNCE] {c.get('name')} ({c.get('clientType')}) from {c.get('hostname')} has connected.")
-                    elif p.get("action") == "left":
-                        logger.info(f"[ANNOUNCE] {c.get('name')} ({c.get('clientType')}) from {c.get('hostname')} has disconnected.")
+                    action = p.get("action")
+                    client_name = c.get("name", "")
+                    if action == "joined":
+                        logger.info(f"[ANNOUNCE] {client_name} ({c.get('clientType')}) from {c.get('hostname')} has connected.")
+                        if client_name:
+                            _connected_clients[client_name] = c
+                    elif action == "left":
+                        logger.info(f"[ANNOUNCE] {client_name} ({c.get('clientType')}) from {c.get('hostname')} has disconnected.")
+                        _connected_clients.pop(client_name, None)
                     continue
 
                 if msg_type == "ping":

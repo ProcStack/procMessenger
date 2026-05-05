@@ -12,6 +12,7 @@ import asyncio
 import aiohttp
 
 import config
+from system_prompt_builder import build_system_prompt
 
 logger = logging.getLogger("procMessenger.llm.providers")
 
@@ -194,17 +195,7 @@ async def chat_completion(provider_key, messages, mode="ask", model=None, inject
     # Use caller-specified model, fall back to config default
     effective_model = model if model else prov["model"]
 
-    system_prompt = get_system_prompt(system_prompt_key)
-    if injected_prompt:
-        system_prompt += "\n" + injected_prompt
-
-    # Append mode-specific instruction
-    mode_suffix = {
-        "ask": "\n\nYou are in Ask mode. Respond to the user's question.",
-        "agent": "\n\nYou are in Agent mode. You may describe actions to take and incorporate tool outputs.",
-        "plan": "\n\nYou are in Plan mode. Break down the request into numbered steps before responding, try to find inconsistencies or gaps in data to advise the user.",
-    }
-    system_prompt += mode_suffix.get(mode, "")
+    system_prompt = build_system_prompt(mode, system_prompt_key, injected_prompt)
 
     if provider_key == "claude":
         return await _claude_completion(prov, system_prompt, messages, effective_model)
@@ -496,3 +487,78 @@ async def download_model(url, filename=None):
         if os.path.exists(real_dest):
             os.remove(real_dest)
         return {"error": f"Download failed: {e}"}
+
+
+# ---------------------------------------------------------------------------
+# Search-query extraction helper (used by gather_research mode)
+# ---------------------------------------------------------------------------
+
+async def extract_search_query(
+    provider_key: str,
+    messages: list,
+    model: str | None = None,
+) -> str:
+    """
+    Ask the LLM to distil a single precise Tavily search query from the
+    conversation context.
+
+    The LLM is given a minimal, task-focused system prompt so it returns
+    only the query string – not a conversational reply.  The result is
+    cleaned to a single line and capped at 300 characters.
+
+    Falls back to the last user message text if the provider is unavailable
+    or the call fails.
+    """
+    prov = config.LLM_PROVIDERS.get(provider_key)
+    if not prov or not prov["enabled"]:
+        # Best-effort fallback: use last user turn
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                return m["content"][:300]
+        return ""
+
+    system_prompt = (
+        "You are a search-query extraction assistant. "
+        "Given the conversation below, produce a single, precise web search query "
+        "that would best answer the user's current research need. "
+        "Respond with ONLY the search query string – no explanation, no quotes, "
+        "no punctuation at the end, no extra lines."
+    )
+
+    # Limit context to the last 6 turns for efficiency
+    context = messages[-6:] if len(messages) > 6 else messages
+    effective_model = model if model else prov["model"]
+
+    try:
+        if provider_key == "claude":
+            result = await _claude_completion(prov, system_prompt, context, effective_model)
+        elif provider_key == "llama":
+            local_path = _resolve_local_model_path(effective_model)
+            if local_path:
+                result = await _local_llama_completion(local_path, system_prompt, context)
+            else:
+                result = await _openai_compatible_completion(
+                    prov, system_prompt, context, effective_model
+                )
+        else:
+            result = await _openai_compatible_completion(
+                prov, system_prompt, context, effective_model
+            )
+    except Exception as exc:
+        logger.error("extract_search_query failed: %s", exc)
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                return m["content"][:300]
+        return ""
+
+    # Clean: take first non-empty line, strip surrounding quotes and whitespace
+    for line in result.strip().splitlines():
+        cleaned = line.strip().strip("\"'").strip()
+        if cleaned:
+            return cleaned[:300]
+
+    # Fallback if LLM returned empty/unusable text
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            return m["content"][:300]
+    return ""

@@ -93,3 +93,11 @@ CHUNK_SIZE = 512 * 1024                   # 512 KB per chunk
 # --- Ping / Keepalive ---
 PING_INTERVAL = 30
 PING_TIMEOUT = 10
+
+# --- Tavily Web Search ---
+# Obtain a free API key at https://app.tavily.com/
+# Monthly credit limit applies (default free tier: 1 000 searches/month).
+TAVILY_API_KEY    = os.getenv("TAVILY_API_KEY", "")
+TAVILY_MAX_RESULTS   = int(os.getenv("TAVILY_MAX_RESULTS", "10"))
+# "basic" uses ~1 credit per search; "advanced" uses ~2 credits.
+TAVILY_SEARCH_DEPTH  = os.getenv("TAVILY_SEARCH_DEPTH", "basic")

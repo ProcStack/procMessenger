@@ -194,12 +194,42 @@
         </div>
     </div>
 
-    <!-- Scripts: load order matters -->
-    <script src="js/config.js"></script>
-    <script src="js/websocket.js"></script>
-    <script src="js/app.js"></script>
-</body>
-</html>
+    <!-- procIndex Entry Viewer Modal -->
+    <div id="piEntryModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span id="piEntryTitle" class="pi-entry-modal-title">Entry</span>
+                <button class="btn-close-modal" onclick="closePiEntryModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="piEntryMeta" class="pi-entry-meta"></div>
+                <pre id="piEntryContent" class="pi-entry-content"></pre>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closePiEntryModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Research Result Action Modal -->
+    <div id="researchResultModal" class="modal-overlay">
+        <div class="modal-content rr-modal-content">
+            <div class="modal-header">
+                <h3>Research Result</h3>
+                <button class="btn-close-modal" onclick="closeResearchResultModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="rrModalTitle" class="rr-modal-title"></div>
+                <div id="rrModalUrl"   class="rr-modal-url"></div>
+                <div id="rrModalSnippet" class="rr-modal-snippet"></div>
+            </div>
+            <div class="modal-footer rr-modal-footer">
+                <button id="rrBtnIndex"   class="btn-primary">Index Website</button>
+                <button id="rrBtnParse"   class="btn-secondary">Parse Contents</button>
+                <button id="rrBtnDismiss" class="btn-secondary">Dismiss</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Scripts: load order matters -->
     <script src="js/config.js"></script>

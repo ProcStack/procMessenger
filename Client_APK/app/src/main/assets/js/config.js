@@ -23,6 +23,7 @@ const CONFIG = {
         { value: "edit_story",       label: "Edit Story" },
         { value: "llm_chat",         label: "LLM Chat" },
         { value: "blog_entry",       label: "Blog Entry" },
+        { value: "procIndex",        label: "procIndex Search" },
     ],
 
     // Attachment limits (must match server config)

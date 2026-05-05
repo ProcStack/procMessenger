@@ -25,6 +25,8 @@ let llmActiveChatName = "";        // Currently active chat name
 let llmChatHistory = [];           // Messages in the active LLM chat
 let llmChatList = [];              // List of saved chat sessions
 let llmModelsRequested = false;    // True after the first automatic model fetch this session
+let llmResearchResults = [];       // Tavily search results (NOT part of chat history)
+let llmResearchChatName = "";      // Which chat the current research results belong to
 
 // --- Topic State ---
 let serverTopics = [];             // List of topics from server
@@ -41,6 +43,10 @@ let bsViewportState = null;        // Last known { x, y, zoom } from viewportSta
 
 // --- Blog Entry State ---
 let blogEntryDraft = null;         // Current draft { name, keywords, date, body, eid }
+
+// --- procIndex State ---
+let piSearchResults = [];          // Last search results from procIndex
+let piAnnounceInfo = null;         // Last announce payload (null = not yet seen)
 
 // --- File Browser State ---
 let fbFileList = [];               // Aggregated file list from server
@@ -442,6 +448,10 @@ function updateDynamicPanel() {
 
         case "blog_entry":
             renderBlogEntryPanel(panel);
+            break;
+
+        case "procIndex":
+            renderProcIndexPanel(panel);
             break;
 
         default:
@@ -1009,6 +1019,12 @@ function handleSend() {
         return;
     }
 
+    // procIndex always targets the procIndex client directly
+    if (type === "procIndex") {
+        procIndexSearch();
+        return;
+    }
+
     const targets = getSelectedTargets();
 
     if (targets.length === 0) {
@@ -1437,6 +1453,23 @@ function onMessage(msg) {
         return;
     }
 
+    // --- Gather Research results (not part of chat history) ---
+    if (type === "gather_research_results") {
+        handleGatherResearchResults(payload);
+        return;
+    }
+
+    if (type === "gather_research_action") {
+        handleGatherResearchActionResult(payload);
+        return;
+    }
+
+    // --- procIndex messages ---
+    if (type === "procIndex") {
+        handleProcIndexResponse(source, payload);
+        return;
+    }
+
     // --- Standard message handling ---
 
     // Handle script list responses - update the dropdown
@@ -1482,6 +1515,8 @@ function onMessage(msg) {
         displayText = payload.message || JSON.stringify(payload, null, 2);
     } else if (type === "blog_entry") {
         displayText = payload.message || JSON.stringify(payload, null, 2);
+    } else if (type === "procIndex") {
+        displayText = JSON.stringify(payload, null, 2);
     } else if (type === "error") {
         displayText = `Error [${payload.code}]: ${payload.message}`;
     } else {
@@ -1741,9 +1776,13 @@ function renderLlmChatMessages() {
     if (!display) return;
     display.innerHTML = "";
 
-    if (llmChatHistory.length === 0) {
+    if (llmChatHistory.length === 0 && !llmResearchResults.length) {
         display.innerHTML = '<div class="empty-list">Start a conversation...</div>';
         return;
+    }
+
+    if (llmChatHistory.length === 0) {
+        // No chat messages yet but research results may be present — skip the placeholder
     }
 
     llmChatHistory.forEach((msg) => {
@@ -1768,6 +1807,9 @@ function renderLlmChatMessages() {
         el.appendChild(body);
         display.appendChild(el);
     });
+
+    // Append research result cards (if any belong to this chat)
+    _renderResearchResultsSection(display);
 
     display.scrollTop = display.scrollHeight;
 }
@@ -2749,4 +2791,435 @@ function renderTopicSelectList() {
 
         container.appendChild(item);
     });
+}
+
+// ============================================================================
+// procIndex – Keyword Search & Entry Viewer
+// ============================================================================
+
+/** Render the procIndex search panel inside the dynamic panel container. */
+function renderProcIndexPanel(panel) {
+    const online = piAnnounceInfo !== null;
+    const statusClass = online ? "pi-status-online" : "pi-status-offline";
+    const statusText = online
+        ? `procIndex online \u2014 ${piAnnounceInfo.totalEntries || 0} entries ` +
+          `(${piAnnounceInfo.indexed || 0} indexed, ${piAnnounceInfo.toParse || 0} staged)`
+        : "procIndex not detected \u2014 start the procIndex service";
+
+    const resultsHtml = piSearchResults.length > 0
+        ? piSearchResults.map(r => piRenderResultItem(r)).join("")
+        : '<div class="empty-list">Enter keywords and tap Search</div>';
+
+    panel.innerHTML = `
+        <div class="pi-panel">
+            <div class="pi-status-bar ${statusClass}">${escapeHtml(statusText)}</div>
+            <div class="pi-search-row">
+                <input type="text" id="piQuery" class="pi-query-input"
+                       placeholder="Search keywords..." />
+                <button id="piBtnSearch" class="btn-primary btn-sm">Search</button>
+            </div>
+            <div class="pi-options-row">
+                <label class="pi-option-label">Max&nbsp;results:
+                    <input type="number" id="piMaxResults" class="pi-max-input"
+                           value="10" min="1" max="50" />
+                </label>
+                <label class="pi-option-label">
+                    <input type="checkbox" id="piIncludeAll" checked />
+                    All statuses
+                </label>
+            </div>
+            <div id="piResultsList" class="pi-results-list">
+                ${resultsHtml}
+            </div>
+        </div>
+    `;
+
+    document.getElementById("piBtnSearch").addEventListener("click", procIndexSearch);
+    document.getElementById("piQuery").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") procIndexSearch();
+    });
+
+    // Re-attach tap listeners if there are existing results
+    if (piSearchResults.length > 0) {
+        panel.querySelectorAll(".pi-result-item").forEach(item => {
+            item.addEventListener("click", () => procIndexGetEntry(item.dataset.id));
+        });
+    }
+}
+
+/** Build HTML for a single search result row. */
+function piRenderResultItem(r) {
+    const sim = typeof r.similarity === "number"
+        ? `<span class="pi-result-sim">${(r.similarity * 100).toFixed(0)}%</span>`
+        : "";
+    const kw = (r.keywords || []).slice(0, 6).join(", ");
+    const statusClass = r.status === "indexed" ? "pi-badge-indexed" : "pi-badge-staged";
+    const statusLabel = r.status === "indexed" ? "indexed" : "staged";
+
+    return `
+        <div class="pi-result-item" data-id="${escapeHtml(r.id || "")}">
+            <div class="pi-result-header">
+                <span class="pi-result-title">${escapeHtml(r.title || r.id || "Untitled")}</span>
+                <span class="pi-badge ${statusClass}">${statusLabel}</span>
+                ${sim}
+            </div>
+            ${kw ? `<div class="pi-result-keywords">${escapeHtml(kw)}</div>` : ""}
+        </div>
+    `;
+}
+
+/** Send a search request to the procIndex service. */
+function procIndexSearch() {
+    if (!wsManager || !wsManager.connected) {
+        setStatus("error", "Not connected to server.");
+        return;
+    }
+    const query = document.getElementById("piQuery")?.value.trim() || "";
+    if (!query) {
+        setStatus("error", "Enter a search query.");
+        return;
+    }
+
+    const maxResults = parseInt(document.getElementById("piMaxResults")?.value || "10", 10);
+    const includeAll = document.getElementById("piIncludeAll")?.checked !== false;
+
+    const payload = { action: "search", query, maxResults };
+    if (!includeAll) {
+        payload.includeStatus = ["indexed"];
+    }
+
+    wsManager.send("procIndex", "procIndex", payload);
+    addMessageToTab("procIndex", "out", "procIndex", `Search: ${query}`);
+    setStatus("connected", "Searching procIndex\u2026");
+
+    const listEl = document.getElementById("piResultsList");
+    if (listEl) listEl.innerHTML = '<div class="empty-list">Searching\u2026</div>';
+}
+
+/** Request the full content of a single entry by ID. */
+function procIndexGetEntry(entryId) {
+    if (!entryId) return;
+    if (!wsManager || !wsManager.connected) {
+        setStatus("error", "Not connected to server.");
+        return;
+    }
+    wsManager.send("procIndex", "procIndex", { action: "get", id: entryId });
+    addMessageToTab("procIndex", "out", "procIndex", `Get entry: ${entryId}`);
+    setStatus("connected", "Loading entry\u2026");
+}
+
+/**
+ * Handle all incoming procIndex messages dispatched from onMessage().
+ * Covers: announce, search, get, and unrecognised actions.
+ */
+function handleProcIndexResponse(source, payload) {
+    const action = payload.action || "";
+
+    // --- announce: procIndex came online ---
+    if (action === "announce") {
+        piAnnounceInfo = payload;
+        // Update the status bar if the procIndex panel is currently visible
+        if (document.getElementById("functionSelect").value === "procIndex") {
+            const statusEl = document.querySelector(".pi-status-bar");
+            if (statusEl) {
+                statusEl.className = "pi-status-bar pi-status-online";
+                statusEl.textContent =
+                    `procIndex online \u2014 ${payload.totalEntries || 0} entries ` +
+                    `(${payload.indexed || 0} indexed, ${payload.toParse || 0} staged)`;
+            }
+        }
+        addMessageToTab(source, "in", "procIndex",
+            `procIndex online \u2014 ${payload.totalEntries || 0} entries`);
+        return;
+    }
+
+    // --- search results ---
+    if (action === "search") {
+        piSearchResults = payload.results || [];
+        const listEl = document.getElementById("piResultsList");
+        if (listEl) {
+            if (piSearchResults.length === 0) {
+                listEl.innerHTML = '<div class="empty-list">No results found</div>';
+            } else {
+                listEl.innerHTML = piSearchResults.map(r => piRenderResultItem(r)).join("");
+                listEl.querySelectorAll(".pi-result-item").forEach(item => {
+                    item.addEventListener("click", () => procIndexGetEntry(item.dataset.id));
+                });
+            }
+        }
+        const count = piSearchResults.length;
+        addMessageToTab(source, "in", "procIndex",
+            `Search \u201C${payload.query || ""}\u201D: ${count} result(s)`);
+        setStatus("connected", `${count} result(s) found.`);
+        return;
+    }
+
+    // --- full entry content ---
+    if (action === "get") {
+        // The response may nest the entry under payload.entry or inline it.
+        const entry = payload.entry || payload;
+        const fileContent = payload.fileContent || "";
+        openPiEntryModal(entry, fileContent);
+        addMessageToTab(source, "in", "procIndex",
+            `Entry: ${entry.title || entry.id || "unknown"}`);
+        return;
+    }
+
+    // --- fallback: log the raw payload ---
+    addMessageToTab(source, "in", "procIndex", JSON.stringify(payload, null, 2));
+}
+
+/** Open the procIndex entry viewer modal with the given entry and Markdown content. */
+function openPiEntryModal(entry, fileContent) {
+    const modal = document.getElementById("piEntryModal");
+    if (!modal) return;
+
+    const titleEl   = document.getElementById("piEntryTitle");
+    const metaEl    = document.getElementById("piEntryMeta");
+    const contentEl = document.getElementById("piEntryContent");
+
+    if (titleEl) titleEl.textContent = entry.title || entry.id || "Entry";
+
+    if (metaEl) {
+        const kw     = (entry.keywords || []).join(", ") || "\u2014";
+        const linked = (entry.linkedIds || []).length;
+        const statusClass = entry.status === "indexed" ? "pi-badge-indexed" : "pi-badge-staged";
+        metaEl.innerHTML = `
+            <div class="pi-entry-badges">
+                <span class="pi-badge ${statusClass}">${escapeHtml(entry.status || "unknown")}</span>
+                <span class="pi-meta-item">${escapeHtml(entry.fileType || "text")}</span>
+                ${linked > 0 ? `<span class="pi-meta-item">${linked} linked idea(s)</span>` : ""}
+            </div>
+            <div class="pi-meta-keywords">Keywords: ${escapeHtml(kw)}</div>
+            ${entry.sourceUrl
+                ? `<div class="pi-meta-source">${escapeHtml(entry.sourceUrl)}</div>`
+                : ""}
+        `;
+    }
+
+    if (contentEl) {
+        contentEl.textContent = fileContent || "(no content)";
+    }
+
+    modal.classList.add("visible");
+}
+
+/** Close the procIndex entry viewer modal. */
+function closePiEntryModal() {
+    const modal = document.getElementById("piEntryModal");
+    if (modal) modal.classList.remove("visible");
+    const contentEl = document.getElementById("piEntryContent");
+    if (contentEl) contentEl.textContent = "";
+}
+
+// ---------------------------------------------------------------------------
+// Gather Research – result cards and action modal
+// ---------------------------------------------------------------------------
+
+/**
+ * Receive gather_research_results from the LLM Chat server.
+ * Results are stored but NOT added to llmChatHistory.
+ */
+function handleGatherResearchResults(payload) {
+    const chatName    = payload.chatName    || "";
+    const results     = payload.results     || [];
+    const searchQuery = payload.searchQuery || "";
+    const error       = payload.error       || "";
+
+    llmResearchResults  = results;
+    llmResearchChatName = chatName;
+
+    // Adopt this chat as the active one and re-render so the result cards appear
+    if (chatName) {
+        llmActiveChatName = chatName;
+        llmChatHistory = [];
+        const chatNameInput = document.getElementById("llmChatName");
+        if (chatNameInput) chatNameInput.value = chatName;
+    }
+    renderLlmChatMessages();
+
+    if (error) {
+        addMessageToTab("llm-chat", "in", "gather_research_results",
+            `Search error: ${error}`);
+    } else {
+        addMessageToTab("llm-chat", "in", "gather_research_results",
+            `Found ${results.length} result(s) for: "${searchQuery}"`);
+    }
+}
+
+/**
+ * Receive gather_research_action response from the LLM Chat server.
+ * Updates the card state or shows a log warning for procIndex unavailability.
+ */
+function handleGatherResearchActionResult(payload) {
+    const action   = payload.action   || "";
+    const resultId = payload.resultId || "";
+    const status   = payload.status   || "";
+    const message  = payload.message  || "";
+
+    const card = document.querySelector(`.research-card[data-result-id="${CSS.escape(resultId)}"]`);
+
+    if (status === "procIndex_unavailable") {
+        // Surface the warning in the log tab
+        addMessageToTab("llm-chat", "in", "gather_research_action",
+            `\u26A0 procIndex unavailable: ${message}`);
+        if (card) {
+            const actionsEl = card.querySelector(".research-card-actions");
+            if (actionsEl) {
+                actionsEl.innerHTML =
+                    `<span class="research-status-warn">procIndex not connected</span>`;
+            }
+        }
+        return;
+    }
+
+    if (action === "index" && status === "indexed") {
+        llmResearchResults = llmResearchResults.filter(r => r.resultId !== resultId);
+        if (card) card.remove();
+        addMessageToTab("llm-chat", "in", "gather_research_action",
+            `Indexed: ${payload.title || resultId}`);
+        return;
+    }
+
+    if (action === "parse" && status === "added") {
+        if (card) {
+            const actionsEl = card.querySelector(".research-card-actions");
+            if (actionsEl) {
+                actionsEl.innerHTML =
+                    `<span class="research-status-ok">\u2713 Added to chat context</span>`;
+            }
+        }
+        addMessageToTab("llm-chat", "in", "gather_research_action",
+            `Parsed into chat context: ${payload.title || resultId}`);
+    }
+}
+
+/**
+ * Render the research result cards section at the bottom of the chat display.
+ * Called from renderLlmChatMessages(); does nothing if there are no results
+ * for the active chat.
+ */
+function _renderResearchResultsSection(display) {
+    // Remove any stale section first (full re-render path)
+    const existing = display.querySelector(".research-results-section");
+    if (existing) existing.remove();
+
+    if (!llmResearchResults.length || llmResearchChatName !== llmActiveChatName) return;
+
+    const section = document.createElement("div");
+    section.className = "research-results-section";
+
+    const header = document.createElement("div");
+    header.className = "research-results-header";
+    header.textContent = `Research Results \u2014 ${llmResearchResults.length} found`;
+    section.appendChild(header);
+
+    llmResearchResults.forEach((result) => {
+        const card = document.createElement("div");
+        card.className  = "research-card";
+        card.dataset.resultId = result.resultId || "";
+
+        const titleEl = document.createElement("div");
+        titleEl.className   = "research-card-title";
+        titleEl.textContent = result.title || "(no title)";
+
+        const urlEl = document.createElement("div");
+        urlEl.className   = "research-card-url";
+        urlEl.textContent = result.url || "";
+
+        const snippetEl = document.createElement("div");
+        snippetEl.className   = "research-card-snippet";
+        const snip = result.snippet || "";
+        snippetEl.textContent = snip.length > 180 ? snip.substring(0, 180) + "\u2026" : snip;
+
+        const actionsEl = document.createElement("div");
+        actionsEl.className = "research-card-actions";
+
+        card.appendChild(titleEl);
+        card.appendChild(urlEl);
+        card.appendChild(snippetEl);
+        card.appendChild(actionsEl);
+
+        // Tapping anywhere on the card opens the action sheet
+        card.addEventListener("click", () => showResearchResultModal(result));
+
+        section.appendChild(card);
+    });
+
+    display.appendChild(section);
+}
+
+/**
+ * Open the research result action sheet for a single result.
+ */
+function showResearchResultModal(result) {
+    const modal = document.getElementById("researchResultModal");
+    if (!modal) return;
+
+    document.getElementById("rrModalTitle").textContent =
+        result.title || "(no title)";
+    document.getElementById("rrModalUrl").textContent =
+        result.url   || "";
+    const snip = result.snippet || "";
+    document.getElementById("rrModalSnippet").textContent =
+        snip.length > 500 ? snip.substring(0, 500) + "\u2026" : snip;
+
+    // Index button
+    document.getElementById("rrBtnIndex").onclick = () => {
+        closeResearchResultModal();
+        if (!wsManager || !wsManager.connected) {
+            setStatus("error", "Not connected to server.");
+            return;
+        }
+        const provider = document.getElementById("llmProvider")?.value || "llama";
+        const model    = document.getElementById("llmModel")?.value    || "";
+        wsManager.send("gather_research_action", "llm-chat", {
+            action:    "index",
+            chatName:  llmActiveChatName,
+            resultId:  result.resultId,
+            url:       result.url,
+            title:     result.title,
+            snippet:   result.snippet,
+            provider:  provider,
+            model:     model,
+        });
+        addMessageToTab("llm-chat", "out", "gather_research_action",
+            `Index: ${result.title}`);
+    };
+
+    // Parse button
+    document.getElementById("rrBtnParse").onclick = () => {
+        closeResearchResultModal();
+        if (!wsManager || !wsManager.connected) {
+            setStatus("error", "Not connected to server.");
+            return;
+        }
+        wsManager.send("gather_research_action", "llm-chat", {
+            action:   "parse",
+            chatName: llmActiveChatName,
+            resultId: result.resultId,
+            url:      result.url,
+            title:    result.title,
+            snippet:  result.snippet,
+        });
+        addMessageToTab("llm-chat", "out", "gather_research_action",
+            `Parse: ${result.title}`);
+    };
+
+    // Dismiss button
+    document.getElementById("rrBtnDismiss").onclick = () => {
+        closeResearchResultModal();
+        llmResearchResults = llmResearchResults.filter(
+            r => r.resultId !== result.resultId
+        );
+        renderLlmChatMessages();
+    };
+
+    modal.classList.add("visible");
+}
+
+/** Close the research result action modal. */
+function closeResearchResultModal() {
+    const modal = document.getElementById("researchResultModal");
+    if (modal) modal.classList.remove("visible");
 }
