@@ -58,12 +58,28 @@ Sent by a client immediately after WebSocket connection opens.
   "target": "server",
   "payload": {
     "clientType": "python | nodejs | mobile",
-    "capabilities": ["run_script", "gather_research", "edit_story"],
+    "capabilities": ["run_script", "gather_research", "edit_story", "file_transfers"],
+    "functions": ["run_script", "edit_story"],
     "hostname": "DESKTOP-ABC123",
     "nickname": ""
   }
 }
 ```
+
+| Field          | Required | Description |
+|----------------|----------|-------------|
+| `clientType`   | yes      | `"python"`, `"nodejs"`, or `"mobile"` |
+| `capabilities` | no       | Full list of message types the client can handle (used for internal routing and capability discovery) |
+| `functions`    | no       | **User-facing** subset of capabilities shown in the mobile app function dropdown. Single-function clients have the dropdown hidden and the function auto-selected. Omit or leave empty to hide the client from the function selector. |
+| `hostname`     | no       | Machine hostname for duplicate detection |
+| `nickname`     | no       | Optional display name |
+
+**`functions` vs `capabilities`:**
+- `capabilities` covers everything the client can receive, including sub-commands invoked from within
+  a function panel (e.g. `query_nodes`, `get_node`, `viewport`).
+- `functions` is the shorter list of top-level user-facing actions the mobile app offers as selectable
+  functions. If a client only supports one user-facing function the mobile app auto-selects it and hides
+  the dropdown entirely.
 
 ### `client_list`
 Broadcast by the server when the client registry changes.
@@ -79,6 +95,7 @@ Broadcast by the server when the client registry changes.
         "name": "my-desktop",
         "clientType": "python",
         "capabilities": ["run_script", "edit_story"],
+        "functions": ["run_script", "edit_story"],
         "hostname": "DESKTOP-ABC123",
         "nickname": "",
         "connectedAt": "ISO-8601"
@@ -905,6 +922,26 @@ Sent by server or client when something goes wrong.
 
 ---
 
+## Server-Side Routing
+
+### Targeted Message Routing
+
+The server routes every message to the specific named `target` client.  **Messages are never
+broadcast to clients that did not register the relevant function.**
+
+- `file_list`, `file_fetch`, `file_upload`, `file_delete`, `file_list_announce` — handled entirely
+  by the server.  These messages are **never forwarded to application clients** (PC scripts, LLM
+  clients, etc.).  Application clients do not need to handle file operations.
+- After the server processes a file-list change it notifies only `mobile` type clients (not every
+  connected client).
+- When routing any other message type to a non-server target the server checks that the named
+  target's registered `functions` or `capabilities` include the message type.  If the target is not
+  capable the server returns a `TARGET_FUNCTION_UNSUPPORTED` error.
+- `server_known_data` now returns `clients` (full client list including `functions`) so the mobile
+  app can discover capabilities without extra round-trips.
+
+---
+
 ## File Transfer System
 
 The file transfer system lets any client browse files held by other clients and download them on demand.
@@ -912,12 +949,16 @@ Files are stored permanently in the shared `transfers/` folder at the project ro
 Node.js and Python servers). The mobile app never caches files locally - data is streamed on demand and
 held only in memory until dismissed or explicitly downloaded to the phone.
 
+**File operations are handled exclusively by the server.** Application clients (LLM Chat, blog client,
+branchShredder, etc.) do not receive `file_list`, `file_fetch`, or `file_delete` messages and should
+not implement handlers for them.
+
 ### Architecture
 
 ```
-Mobile App  ──file_list──►  Server  ──aggregates lists──►  Mobile App
-Mobile App  ──file_fetch──► Server  ──relays──►  OwnerClient  ──file_transfer_data (chunks)──►  Server  ──►  Mobile App
-Any Client  ──file_receive──► Server  stores chunk ──► reassembles ──► file_list_announce
+Mobile App  ──file_list──►  Server  ──aggregates lists──►  Mobile App (only)
+Mobile App  ──file_fetch──► Server  ──relays──►  OwnerClient  ──file_transfer_data (chunks)──►  Mobile App
+Any Client  ──file_upload──► Server  stores chunks ──► reassembles ──► broadcasts file_list to mobile clients
 ```
 
 ### Shared Transfers Directory
@@ -1327,6 +1368,7 @@ The port is configurable in each component's config file:
 
 | Date       | Change |
 |------------|--------|
+| 2026-05-05 | Added `functions` field to `register` and `client_list`; server now routes messages only to clients advertising the relevant function; `file_list` updates broadcast only to `mobile` clients; `server_known_data` now includes `clients`; file operations are server-only (application clients never receive file messages); added `TARGET_FUNCTION_UNSUPPORTED` error code; mobile app redesigned with Client/Files/Logs tab layout; file browser moved to dedicated Files tab |
 | 2026-03-20 | Added File Transfer System: `file_list_announce`, `file_list`, `file_fetch`, `file_transfer_data`, `file_receive`, `file_receive_complete`; updated `register` to carry `fileList`; added `file_transfers` capability; added shared `transfers/` directory with `metadata.json` |
 | 2026-03-19 | Added `find_nodes`, `get_node`, `update_node` node management types |
 | 2026-03-19 | Added `system` type with actions: `recent_scenes`, `open_recent`, `new_scene`, `save_scene` |

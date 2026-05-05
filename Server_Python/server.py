@@ -87,6 +87,7 @@ def get_client_list():
             "name": info["name"],
             "clientType": info["clientType"],
             "capabilities": info["capabilities"],
+            "functions": info.get("functions", []),
             "hostname": info.get("hostname", ""),
             "nickname": nicknames.get(info["name"], info.get("nickname", "")),
             "connectedAt": info["connectedAt"],
@@ -108,6 +109,16 @@ async def broadcast(message, exclude=None):
     tasks = []
     for ws in clients:
         if ws != exclude:
+            tasks.append(ws.send(message))
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def broadcast_to_mobile(message):
+    """Send a message only to connected clients of type 'mobile'."""
+    tasks = []
+    for ws, info in clients.items():
+        if info.get("clientType") == "mobile":
             tasks.append(ws.send(message))
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -168,10 +179,12 @@ async def route_message(websocket, raw):
                     return
 
         capabilities = payload.get("capabilities", [])
+        functions = payload.get("functions", [])
         clients[websocket] = {
             "name": name,
             "clientType": client_type,
             "capabilities": capabilities,
+            "functions": functions,
             "hostname": hostname,
             "nickname": payload.get("nickname", ""),
             "connectedAt": datetime.now(timezone.utc).isoformat(),
@@ -212,10 +225,11 @@ async def route_message(websocket, raw):
         files = payload.get("files", [])
         client_file_lists[source] = files
         logger.info(f"[FILES] {source} updated file list: {len(files)} file(s).")
+        # Only notify mobile clients — application clients have no use for file lists
         agg_msg = build_message("file_list", "server", "all", {
             "files": get_aggregated_file_list(),
         })
-        await broadcast(agg_msg)
+        await broadcast_to_mobile(agg_msg)
         return
 
     # Mobile requesting the aggregated file list from the server directly.
@@ -284,10 +298,11 @@ async def route_message(websocket, raw):
         done, record = _handlers.receive_file_chunk({**payload, "source": source, "target": "server"})
         if done:
             client_file_lists["server"] = _handlers.get_file_list()
+            # Only notify mobile clients
             agg_msg = build_message("file_list", "server", "all", {
                 "files": get_aggregated_file_list(),
             })
-            await broadcast(agg_msg)
+            await broadcast_to_mobile(agg_msg)
             reply = build_message("file_receive_complete", "server", source, {
                 "fileId": record["fileId"],
                 "fileName": record["fileName"],
@@ -313,7 +328,7 @@ async def route_message(websocket, raw):
             response_type, response_payload = _handlers.handle_file_delete(payload)
             if response_payload.get("deleted"):
                 client_file_lists["server"] = _handlers.get_file_list()
-                await broadcast(build_message("file_list", "server", "all", {
+                await broadcast_to_mobile(build_message("file_list", "server", "all", {
                     "files": get_aggregated_file_list()
                 }))
             await websocket.send(build_message(response_type, "server", source, response_payload))
@@ -334,6 +349,7 @@ async def route_message(websocket, raw):
         reply = build_message("server_known_data", "server", source, {
             "files": get_aggregated_file_list(),
             "topics": _handlers.load_topics(),
+            "clients": get_client_list(),
         })
         await websocket.send(reply)
         return
@@ -450,11 +466,11 @@ async def handle_connection(websocket):
             logger.info(f"Unregistered client: {client_name}")
             await broadcast(announce_msg)
             await broadcast_client_list()
-            # Broadcast updated aggregate file list
+            # Notify only mobile clients of the updated file list
             agg_msg = build_message("file_list", "server", "all", {
                 "files": get_aggregated_file_list(),
             })
-            await broadcast(agg_msg)
+            await broadcast_to_mobile(agg_msg)
 
 
 async def start_server():

@@ -10,8 +10,12 @@ let wsManager = null;
 let connectedClients = [];        // Array of client info from server
 let clientNicknames = {};          // clientName -> nickname (persisted in localStorage)
 let messageTabs = {};              // clientName -> array of messages
-let activeTab = null;              // Currently viewed tab name
+let activeTab = null;              // Currently viewed log tab name
 let selectedTargets = new Set();   // Multi-select: which computers to send to
+
+// --- Main Tab State ---
+let activeMainTab = "client";     // "client" | "files" | "logs"
+let logUnreadCount = 0;           // Unread log entries since last Logs tab visit
 
 // --- LLM State ---
 let llmProviders = [];             // Available LLM providers from llm_announce
@@ -57,6 +61,11 @@ document.addEventListener("DOMContentLoaded", () => {
     updateDynamicPanel();
     updateConnectionButtons("disconnected");
 
+    // Wire up main tab bar
+    document.querySelectorAll(".main-tab").forEach(tab => {
+        tab.addEventListener("click", () => switchMainTab(tab.dataset.tab));
+    });
+
     // Restore last-used IP and port (or fall back to config defaults)
     const recentIps = getRecentIps();
     if (recentIps.length > 0) {
@@ -69,6 +78,39 @@ document.addEventListener("DOMContentLoaded", () => {
             localStorage.getItem("serverPort") || CONFIG.PORT;
     }
 });
+
+// --- Main Tab Switching ---
+
+function switchMainTab(tabName) {
+    activeMainTab = tabName;
+    // Update tab bar
+    document.querySelectorAll(".main-tab").forEach(t => {
+        t.classList.toggle("active", t.dataset.tab === tabName);
+    });
+    // Update panels
+    document.querySelectorAll(".tab-panel").forEach(p => {
+        p.classList.toggle("active", p.dataset.panel === tabName);
+    });
+    // Clear badge on Logs tab
+    if (tabName === "logs") {
+        logUnreadCount = 0;
+        updateLogBadge();
+        renderLogsPanel();
+    } else if (tabName === "files") {
+        renderFilesTab();
+    }
+}
+
+function updateLogBadge() {
+    const badge = document.getElementById("logBadge");
+    if (!badge) return;
+    if (logUnreadCount > 0) {
+        badge.textContent = String(logUnreadCount);
+        badge.style.display = "inline-flex";
+    } else {
+        badge.style.display = "none";
+    }
+}
 
 function setupEventListeners() {
     document.getElementById("btnConnect").addEventListener("click", handleConnect);
@@ -227,6 +269,9 @@ function onClientListUpdate(clients) {
     // Filter out self
     connectedClients = clients.filter((c) => c.name !== CONFIG.CLIENT_NAME);
     renderClientList();
+    // Re-evaluate function dropdown for currently selected client
+    const selName = Array.from(selectedTargets)[0] || null;
+    updateFunctionDropdownForClient(selName);
 }
 
 function renderClientList() {
@@ -254,13 +299,13 @@ function renderClientList() {
         // Toggle selection on tap (single-select)
         item.addEventListener("click", (e) => {
             if (e.target.classList.contains("btn-nickname")) return;
-            if (selectedTargets.has(client.name)) {
-                selectedTargets.clear();
-            } else {
-                selectedTargets.clear();
+            const wasSelected = selectedTargets.has(client.name);
+            selectedTargets.clear();
+            if (!wasSelected) {
                 selectedTargets.add(client.name);
             }
             renderClientList();
+            updateFunctionDropdownForClient(wasSelected ? null : client.name);
         });
 
         // Nickname button
@@ -274,20 +319,79 @@ function renderClientList() {
                     wsManager.setNickname(client.name, newNick);
                 }
                 renderClientList();
-                renderMessageTabs();
+                renderLogsPanel();
             }
         });
 
         container.appendChild(item);
     });
+}
 
+/**
+ * Update the function dropdown (and auto-select) based on what the named client supports.
+ * - No client selected: show full list, keep current selection.
+ * - Client with 0 registered functions: show full list.
+ * - Client with 1 function: hide dropdown, auto-select.
+ * - Client with 2+ functions: show filtered dropdown.
+ */
+function updateFunctionDropdownForClient(clientName) {
+    const client = clientName ? connectedClients.find(c => c.name === clientName) : null;
+    const clientFunctions = (client && Array.isArray(client.functions) && client.functions.length > 0)
+        ? client.functions
+        : null;
 
+    const select = document.getElementById("functionSelect");
+    const sectionTitle = document.getElementById("functionSectionTitle");
+    if (!select) return;
+
+    if (!clientFunctions) {
+        // No filter — restore full list
+        select.style.display = "";
+        if (sectionTitle) sectionTitle.style.display = "";
+        // Repopulate from config if we previously narrowed the list
+        const currentVal = select.value;
+        populateFunctionDropdown();
+        if (currentVal) select.value = currentVal;
+        updateDynamicPanel();
+        return;
+    }
+
+    const available = CONFIG.MESSAGE_TYPES.filter(mt => clientFunctions.includes(mt.value));
+
+    if (available.length === 1) {
+        // Single function: hide the select label + select element, auto-select
+        select.innerHTML = `<option value="${available[0].value}">${available[0].label}</option>`;
+        select.value = available[0].value;
+        select.style.display = "none";
+        if (sectionTitle) sectionTitle.style.display = "none";
+    } else {
+        // Multiple functions: show filtered dropdown
+        select.style.display = "";
+        if (sectionTitle) sectionTitle.style.display = "";
+        const currentVal = select.value;
+        select.innerHTML = '<option value="" disabled>Select functionality...</option>';
+        available.forEach(mt => {
+            const opt = document.createElement("option");
+            opt.value = mt.value;
+            opt.textContent = mt.label;
+            select.appendChild(opt);
+        });
+        // Restore previous selection if still valid
+        if (available.find(mt => mt.value === currentVal)) {
+            select.value = currentVal;
+        } else {
+            select.value = "";
+        }
+    }
+    updateDynamicPanel();
 }
 
 // --- Function Dropdown & Dynamic Panel ---
 
 function populateFunctionDropdown() {
     const select = document.getElementById("functionSelect");
+    // Clear except the placeholder
+    select.innerHTML = '<option value="" disabled selected>Select functionality...</option>';
     CONFIG.MESSAGE_TYPES.forEach((mt) => {
         const opt = document.createElement("option");
         opt.value = mt.value;
@@ -334,10 +438,6 @@ function updateDynamicPanel() {
 
         case "llm_chat":
             renderLlmPanel(panel);
-            break;
-
-        case "file_browser":
-            renderFileBrowserPanel(panel);
             break;
 
         case "blog_entry":
@@ -903,12 +1003,6 @@ function handleSend() {
         return;
     }
 
-    // File browser requests go to the server directly
-    if (type === "file_browser") {
-        fbRequestList();
-        return;
-    }
-
     // Blog entry sends to the blog-client target
     if (type === "blog_entry") {
         handleBlogEntrySend();
@@ -1004,10 +1098,17 @@ function onMessage(msg) {
         fbFileList = payload.files || [];
         serverTopics = payload.topics || [];
         saveTopicsLocal(serverTopics);
-        // Refresh panel if showing
+        // Update connected client list with server-known clients (includes functions)
+        if (Array.isArray(payload.clients) && payload.clients.length > 0) {
+            onClientListUpdate(payload.clients);
+        }
+        // Refresh panels that depend on this data
         const functionType = document.getElementById("functionSelect").value;
-        if (functionType === "llm_chat" || functionType === "file_browser") {
+        if (functionType === "llm_chat") {
             updateDynamicPanel();
+        }
+        if (activeMainTab === "files") {
+            renderFilesTab();
         }
         return;
     }
@@ -1120,9 +1221,9 @@ function onMessage(msg) {
 
     if (type === "file_list") {
         fbFileList = payload.files || [];
-        // Refresh panel if file_browser is currently showing
-        if (document.getElementById("functionSelect").value === "file_browser") {
-            renderFileBrowserPanel(document.getElementById("dynamicPanel"));
+        // Refresh Files tab if it is currently visible
+        if (activeMainTab === "files") {
+            renderFilesTab();
         }
         return;
     }
@@ -1142,8 +1243,8 @@ function onMessage(msg) {
         if (payload.deleted) {
             fbFileList = fbFileList.filter(f => f.fileId !== payload.fileId);
             if (fbSelectedFileId === payload.fileId) fbSelectedFileId = null;
-            if (document.getElementById("functionSelect").value === "file_browser") {
-                renderFileBrowserPanel(document.getElementById("dynamicPanel"));
+            if (activeMainTab === "files") {
+                renderFilesTab();
             }
             setStatus("connected", `Deleted: ${payload.fileName || payload.fileId}`);
         } else {
@@ -1390,7 +1491,7 @@ function onMessage(msg) {
     addMessageToTab(source, "in", type, displayText);
 }
 
-// --- Message Tabs ---
+// --- Message / Log System ---
 
 function addMessageToTab(clientName, direction, type, text) {
     if (!messageTabs[clientName]) {
@@ -1404,39 +1505,28 @@ function addMessageToTab(clientName, direction, type, text) {
         time: new Date().toLocaleTimeString(),
     });
 
-    // Auto-switch to tab if it's new
+    // Auto-switch active log tab if this is the first message for a source
     if (!activeTab) {
         activeTab = clientName;
     }
 
-    renderMessageTabs();
-    renderMessages();
-    updateResponsesBadge();
-}
-
-function toggleResponsesModal() {
-    const modal = document.getElementById("responsesModal");
-    if (modal) modal.classList.toggle("visible");
-    // Clear badge when opening
-    if (modal && modal.classList.contains("visible")) {
-        const badge = document.getElementById("responsesBadge");
-        if (badge) { badge.style.display = "none"; badge.textContent = ""; }
+    // If Logs tab is visible, re-render it in-place; otherwise increment the badge
+    if (activeMainTab === "logs") {
+        renderLogsPanel();
+    } else {
+        logUnreadCount++;
+        updateLogBadge();
     }
 }
 
-function updateResponsesBadge() {
-    const modal = document.getElementById("responsesModal");
-    // Only show badge when modal is closed
-    if (modal && modal.classList.contains("visible")) return;
-    const badge = document.getElementById("responsesBadge");
-    if (!badge) return;
-    const current = parseInt(badge.textContent || "0", 10);
-    badge.textContent = String(current + 1);
-    badge.style.display = "flex";
+function renderLogsPanel() {
+    renderLogTabs();
+    renderLogMessages();
 }
 
-function renderMessageTabs() {
-    const container = document.getElementById("messageTabs");
+function renderLogTabs() {
+    const container = document.getElementById("logsTabTabs");
+    if (!container) return;
     container.innerHTML = "";
 
     const tabNames = Object.keys(messageTabs);
@@ -1452,15 +1542,16 @@ function renderMessageTabs() {
         tab.textContent = displayName;
         tab.addEventListener("click", () => {
             activeTab = name;
-            renderMessageTabs();
-            renderMessages();
+            renderLogTabs();
+            renderLogMessages();
         });
         container.appendChild(tab);
     });
 }
 
-function renderMessages() {
-    const container = document.getElementById("messageArea");
+function renderLogMessages() {
+    const container = document.getElementById("logsTabMessages");
+    if (!container) return;
     container.innerHTML = "";
 
     if (!activeTab || !messageTabs[activeTab]) {
@@ -2014,7 +2105,14 @@ function fbRequestList() {
     setStatus("connected", "Requesting file list...");
 }
 
-/** Render the file browser panel. */
+/** Render the file browser into the dedicated Files tab panel. */
+function renderFilesTab() {
+    const container = document.getElementById("filesTabContent");
+    if (!container) return;
+    renderFileBrowserPanel(container);
+}
+
+/** Render the file browser panel into the given container element. */
 function renderFileBrowserPanel(panel) {
     panel.innerHTML = `
         <div class="fb-panel">
@@ -2134,8 +2232,8 @@ function fbRequestFile(fileId, ownerClient, mode) {
     setStatus("connected", "Requesting file…");
 
     // Refresh panel to show progress indicator
-    if (document.getElementById("functionSelect").value === "file_browser") {
-        renderFileBrowserPanel(document.getElementById("dynamicPanel"));
+    if (activeMainTab === "files") {
+        renderFilesTab();
     }
 }
 
@@ -2156,8 +2254,8 @@ function fbReceiveChunk(payload) {
     tracker.meta = { fileName, fileType, fileSize, sentAt, source, target };
 
     // Refresh panel progress
-    if (document.getElementById("functionSelect").value === "file_browser") {
-        renderFileBrowserPanel(document.getElementById("dynamicPanel"));
+    if (activeMainTab === "files") {
+        renderFilesTab();
     }
 
     if (tracker.received < totalChunks) return;
@@ -2206,8 +2304,8 @@ function fbReceiveChunk(payload) {
     }
 
     // Refresh panel (remove progress indicator)
-    if (document.getElementById("functionSelect").value === "file_browser") {
-        renderFileBrowserPanel(document.getElementById("dynamicPanel"));
+    if (activeMainTab === "files") {
+        renderFilesTab();
     }
     setStatus("connected", `File received: ${meta.fileName}`);
 }
@@ -2322,8 +2420,8 @@ function fbDownloadFromViewer() {
 /** Toggle selection of a file row. Re-renders the panel to update the action bar. */
 function fbSelectFile(fileId) {
     fbSelectedFileId = (fbSelectedFileId === fileId) ? null : fileId;
-    if (document.getElementById("functionSelect").value === "file_browser") {
-        renderFileBrowserPanel(document.getElementById("dynamicPanel"));
+    if (activeMainTab === "files") {
+        renderFilesTab();
     }
 }
 

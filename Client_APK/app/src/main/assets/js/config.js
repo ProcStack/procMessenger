@@ -13,13 +13,15 @@ const CONFIG = {
     // Reconnect delay in ms
     RECONNECT_DELAY: 5000,
 
-    // Available message types / functionality
+    // Available message types / functionality shown in the function dropdown.
+    // The file browser is a dedicated tab and is not listed here.
+    // When a client advertises its own `functions` list, the dropdown is filtered
+    // to only show the types that client supports.
     MESSAGE_TYPES: [
         { value: "run_script",       label: "Run Script" },
         { value: "gather_research",  label: "Gather Research" },
         { value: "edit_story",       label: "Edit Story" },
         { value: "llm_chat",         label: "LLM Chat" },
-        { value: "file_browser",     label: "File Browser" },
         { value: "blog_entry",       label: "Blog Entry" },
     ],
 

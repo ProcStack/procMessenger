@@ -66,6 +66,7 @@ function getClientList() {
             name: info.name,
             clientType: info.clientType,
             capabilities: info.capabilities,
+            functions: info.functions || [],
             hostname: info.hostname || "",
             nickname: nicknames.get(info.name) || info.nickname || "",
             connectedAt: info.connectedAt,
@@ -103,6 +104,15 @@ function getAggregatedFileList() {
 function broadcast(message, exclude = null) {
     for (const [ws] of clients) {
         if (ws !== exclude && ws.readyState === 1) {
+            ws.send(message);
+        }
+    }
+}
+
+/** Send a message only to connected clients of type 'mobile'. */
+function broadcastToMobile(message) {
+    for (const [ws, info] of clients) {
+        if (info.clientType === "mobile" && ws.readyState === 1) {
             ws.send(message);
         }
     }
@@ -166,10 +176,12 @@ function routeMessage(ws, raw) {
         }
 
         const capabilities = payload.capabilities || [];
+        const functions = payload.functions || [];
         clients.set(ws, {
             name,
             clientType,
             capabilities,
+            functions,
             hostname,
             nickname: payload.nickname || "",
             connectedAt: new Date().toISOString(),
@@ -213,11 +225,11 @@ function routeMessage(ws, raw) {
         const files = payload.files || [];
         clientFileLists.set(source, files);
         console.log(`[FILES] ${source} updated file list: ${files.length} file(s).`);
-        // Broadcast the updated aggregated list to everyone
+        // Only notify mobile clients — application clients have no use for file lists
         const aggMsg = buildMessage("file_list", "server", "all", {
             files: getAggregatedFileList(),
         });
-        broadcast(aggMsg);
+        broadcastToMobile(aggMsg);
         return;
     }
 
@@ -235,7 +247,7 @@ function routeMessage(ws, raw) {
         const reply = buildMessage("server_known_data", "server", source, {
             files: getAggregatedFileList(),
             topics: loadTopics(),
-            // Add other server-derived data here as needed
+            clients: getClientList(),
         });
         ws.send(reply);
         return;
@@ -370,11 +382,11 @@ function routeMessage(ws, raw) {
             const rec = result.record;
             // Register the server's own file list so it appears in the aggregate
             clientFileLists.set("server", handlers.getFileList());
-            // Broadcast updated aggregate file list to all clients
+            // Notify only mobile clients — application clients have no use for file lists
             const aggMsg = buildMessage("file_list", "server", "all", {
                 files: getAggregatedFileList(),
             });
-            broadcast(aggMsg);
+            broadcastToMobile(aggMsg);
             // Confirm the upload to the sender
             const reply = buildMessage("file_receive_complete", "server", source, {
                 fileId: rec.fileId,
@@ -403,7 +415,7 @@ function routeMessage(ws, raw) {
             const result = handlers.deleteFile(payload.fileId || "");
             if (result.deleted) {
                 clientFileLists.set("server", handlers.getFileList());
-                broadcast(buildMessage("file_list", "server", "all", { files: getAggregatedFileList() }));
+                broadcastToMobile(buildMessage("file_list", "server", "all", { files: getAggregatedFileList() }));
             }
             ws.send(buildMessage("file_delete_complete", "server", source, result));
             return;
@@ -506,11 +518,11 @@ function startServer() {
             console.log(`[DISCONNECT] ${name} (code=${code})`);
             broadcastClientList();
 
-            // Broadcast updated aggregate file list
+            // Notify only mobile clients of the updated file list
             const aggMsg = buildMessage("file_list", "server", "all", {
                 files: getAggregatedFileList(),
             });
-            broadcast(aggMsg);
+            broadcastToMobile(aggMsg);
         });
 
         ws.on("error", (err) => {
