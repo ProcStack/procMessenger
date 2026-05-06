@@ -360,9 +360,17 @@ function populateFunctionDropdown() {
     });
 }
 
-function updateDynamicPanel() {
+function updateDynamicPanel(force = false) {
     const type = document.getElementById("functionSelect").value;
     const panel = document.getElementById("dynamicPanel");
+
+    // Skip rebuild when the same function type is already rendered.
+    // This preserves user input (typed queries, selected scripts, etc.)
+    // when switching clients or receiving server-push updates that don't
+    // change the active function.  Pass force=true to override (e.g. when
+    // fresh provider / mode data arrives for the LLM panel).
+    if (!force && panel.dataset.activeFunction === type) return;
+    panel.dataset.activeFunction = type;
 
     switch (type) {
         case "run_script":
@@ -389,7 +397,11 @@ function updateDynamicPanel() {
                 <input type="text" id="researchQuery" class="full-width" placeholder="What would you like to research?" />
                 <label>Max Results:</label>
                 <input type="number" id="researchMaxResults" class="full-width" value="5" min="1" max="20" />
+                <div id="grStatus" class="gr-status hidden"></div>
+                <div id="grCardList" class="research-card-list"></div>
             `;
+            // Restore any results that arrived before this panel was last opened
+            if (typeof _syncGatherResearchPanel === "function") _syncGatherResearchPanel();
             break;
 
         case "edit_story":

@@ -312,7 +312,6 @@ async def handle_llm_message(ws, msg):
             chat = create_chat(chat_name, provider=provider, mode="gather_research")
         # Treat the query as a user message so it appears in the chat
         append_message(chat_name, "user", query)
-        # Pass the query directly — no need to ask the LLM to reformulate it
         await _handle_gather_research(
             ws, chat_name, source, flags, provider, model, [], raw_query=query
         )
@@ -354,6 +353,49 @@ async def handle_llm_message(ws, msg):
 # Gather Research helpers
 # ---------------------------------------------------------------------------
 
+async def _reformulate_search_query(
+    provider: str,
+    query: str,
+    model,
+) -> str:
+    """
+    Ask the LLM to interpret and rephrase a search query using its own
+    knowledge, replacing vague or colloquial phrasing with precise,
+    domain-specific terminology for better search results.
+
+    Example: "pre-sleep visuals" → "hypnagogic hallucinations"
+
+    Returns the reformulated query, or the original on failure.
+    """
+    try:
+        result = await chat_completion(
+            provider,
+            [{
+                "role": "user",
+                "content": (
+                    "You are a search-query expert. "
+                    "Interpret the following research request and rephrase it using the most "
+                    "precise, specific, and technically accurate terminology you know — "
+                    "so that a web search engine returns the most relevant results. "
+                    "Replace informal or colloquial phrasing with proper domain-specific terms "
+                    "(e.g. 'pre-sleep visuals' → 'hypnagogic hallucinations'). "
+                    "Respond with ONLY the reformulated search query — no explanation, "
+                    "no quotes, no preamble, no punctuation at the end, no extra lines.\n\n"
+                    f"Research request: {query}"
+                ),
+            }],
+            mode="ask",
+            model=model,
+        )
+        for line in result.strip().splitlines():
+            cleaned = line.strip().strip("\"'").strip()
+            if cleaned and not cleaned.lower().startswith(("error from", "connection error", "error ")):
+                return cleaned[:300]
+    except Exception as exc:
+        logger.warning("_reformulate_search_query failed: %s", exc)
+    return query
+
+
 async def _handle_gather_research(
     ws,
     chat_name: str,
@@ -367,7 +409,8 @@ async def _handle_gather_research(
     """
     Gather Research pipeline:
       1. Extract a precise search query (or use ``raw_query`` directly).
-      2. Call Tavily with that query.
+      1b. Reformulate that query via LLM to use precise domain terminology.
+      2. Call Tavily with the reformulated query.
       3. Return a brief acknowledgement via ``llm_chat`` (saved to history).
       4. Return the raw result list via ``gather_research_results`` (NOT saved).
     """
@@ -424,6 +467,13 @@ async def _handle_gather_research(
         }, flags))
         return
 
+    # Step 1b: LLM-based query reformulation — replace vague or colloquial
+    # phrasing with precise, domain-specific terminology before hitting Tavily.
+    original_query = search_query
+    search_query = await _reformulate_search_query(provider, search_query, model)
+    if search_query != original_query:
+        logger.info("Query reformulated: '%s' → '%s'", original_query, search_query)
+
     # Step 2: Tavily search
     try:
         search_result = await tavily_search(
@@ -440,19 +490,24 @@ async def _handle_gather_research(
     error   = search_result.get("error", "")
 
     # Step 3: Build acknowledgement text (saved to chat history)
+    reformulation_note = (
+        f"\n*(interpreted from: \"{original_query}\")*"
+        if search_query != original_query
+        else ""
+    )
     if error:
         ack_text = (
-            f"Search for **{search_query}** failed: {error}\n\n"
+            f"Search for **{search_query}**{reformulation_note} failed: {error}\n\n"
             "Please try a different query or check the Tavily API key."
         )
     elif not results:
         ack_text = (
-            f"Searched Tavily for **{search_query}** — no results found.\n\n"
+            f"Searched Tavily for **{search_query}**{reformulation_note} — no results found.\n\n"
             "Try rephrasing or broadening the query."
         )
     else:
         ack_text = (
-            f"Searching Tavily for: **{search_query}**\n\n"
+            f"Searching Tavily for: **{search_query}**{reformulation_note}\n\n"
             f"Found **{len(results)}** result(s). "
             "Tap any result card below to index or parse its contents."
         )

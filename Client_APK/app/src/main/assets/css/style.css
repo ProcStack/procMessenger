@@ -1129,6 +1129,17 @@ button:active {
     gap: 0;
 }
 
+/* Status line shown on the Gather Research panel while searching or after results arrive */
+.gr-status {
+    margin: 8px 0 4px;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    color: var(--accent);
+    background: rgba(87, 169, 216, 0.08);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+}
+
 /* --- Parsed Context Bar --- */
 
 .parsed-context-bar {

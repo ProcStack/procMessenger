@@ -129,7 +129,7 @@ function onMessage(msg) {
         // Refresh panels that depend on this data
         const functionType = document.getElementById("functionSelect").value;
         if (functionType === "llm_chat") {
-            updateDynamicPanel();
+            updateDynamicPanel(true);
         }
         if (activeMainTab === "files") {
             renderFilesTab();
@@ -169,9 +169,9 @@ function onMessage(msg) {
         llmProviders = payload.providers || [];
         llmModes = payload.modes || [];
         llmSystemPrompts = payload.systemPrompts || [];
-        // Re-render panel if LLM Chat is selected
+        // Re-render panel if LLM Chat is selected (force=true: fresh provider data must be reflected)
         if (document.getElementById("functionSelect").value === "llm_chat") {
-            updateDynamicPanel();
+            updateDynamicPanel(true);
         }
         addMessageToTab(source, "in", type, `LLM Chat online. Providers: ${llmProviders.map(p => p.label).join(", ")}`);
         return;
@@ -182,7 +182,7 @@ function onMessage(msg) {
         llmModes = payload.modes || llmModes;
         llmSystemPrompts = payload.systemPrompts || llmSystemPrompts;
         if (document.getElementById("functionSelect").value === "llm_chat") {
-            updateDynamicPanel();
+            updateDynamicPanel(true);
         }
         return;
     }
@@ -480,10 +480,11 @@ function onMessage(msg) {
 
     // --- Standard message handling ---
 
-    // Handle script list responses - update the dropdown
+    // Handle script list responses - update the dropdown, preserving any prior selection
     if (type === "run_script" && payload.action === "script_list") {
         const select = document.getElementById("scriptSelect");
         if (select) {
+            const previousValue = select.value;
             select.innerHTML = "";
             (payload.scripts || []).forEach((s) => {
                 const opt = document.createElement("option");
@@ -493,6 +494,9 @@ function onMessage(msg) {
             });
             if ((payload.scripts || []).length === 0) {
                 select.innerHTML = '<option value="">No scripts available</option>';
+            } else if (previousValue) {
+                // Restore prior selection if the script still exists in the new list
+                select.value = previousValue;
             }
         }
     }

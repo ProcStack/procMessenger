@@ -94,6 +94,10 @@ function renderLlmPanel(panel) {
     if (llmActiveChatName && llmChatHistory.length > 0) {
         renderLlmChatMessages();
     }
+
+    // Restore research results drawer if results are already in state
+    // (e.g. user ran a search on Gather Research then switched here)
+    _syncResearchDrawer();
 }
 
 function updateModelDropdown() {
@@ -210,7 +214,7 @@ function handleLlmChatResponse(payload) {
     const status = payload.status || "";
 
     if (status === "thinking") {
-        // Show thinking indicator
+        // Show thinking indicator in LLM Chat panel
         const display = document.getElementById("llmChatDisplay");
         if (display) {
             let thinkingEl = display.querySelector(".llm-thinking");
@@ -221,6 +225,12 @@ function handleLlmChatResponse(payload) {
                 display.appendChild(thinkingEl);
                 display.scrollTop = display.scrollHeight;
             }
+        }
+        // Also show status in Gather Research panel if that's what's visible
+        const grStatus = document.getElementById("grStatus");
+        if (grStatus) {
+            grStatus.textContent = "Searching the web\u2026";
+            grStatus.classList.remove("hidden");
         }
         return;
     }
@@ -482,6 +492,8 @@ function handleGatherResearchResults(payload) {
     // Refresh chat messages (acknowledgement) and the standalone results drawer
     renderLlmChatMessages();
     _syncResearchDrawer();
+    // Also render into the Gather Research panel if it is currently open
+    _syncGatherResearchPanel();
 
     if (error) {
         addMessageToTab("llm-chat", "in", "gather_research_results",
@@ -521,6 +533,7 @@ function handleGatherResearchActionResult(payload) {
     if (action === "index" && status === "indexed") {
         llmResearchResults = llmResearchResults.filter(r => r.resultId !== resultId);
         _syncResearchDrawer();
+        _syncGatherResearchPanel();
         addMessageToTab("llm-chat", "in", "gather_research_action",
             `Indexed: ${payload.title || resultId}`);
         return;
@@ -552,27 +565,10 @@ function handleGatherResearchActionResult(payload) {
 }
 
 /**
- * Sync the research results drawer with the current llmResearchResults array.
- * The drawer is always visible (when results exist) regardless of which chat
- * is active. Call any time results change.
+ * Build research result cards into any container element.
+ * Shared by both the LLM Chat drawer and the Gather Research panel.
  */
-function _syncResearchDrawer() {
-    const drawer   = document.getElementById("researchDrawer");
-    const cardList = document.getElementById("researchCardList");
-    const label    = document.getElementById("researchDrawerLabel");
-    if (!drawer || !cardList) return;
-
-    if (!llmResearchResults.length) {
-        drawer.classList.add("hidden");
-        return;
-    }
-
-    drawer.classList.remove("hidden");
-    if (label) {
-        label.textContent =
-            `Research Results \u2014 ${llmResearchResults.length} found`;
-    }
-
+function _buildResearchCards(cardList) {
     cardList.innerHTML = "";
     llmResearchResults.forEach((result) => {
         const card = document.createElement("div");
@@ -605,6 +601,50 @@ function _syncResearchDrawer() {
         card.addEventListener("click", () => showResearchResultModal(result));
         cardList.appendChild(card);
     });
+}
+
+/**
+ * Sync the research results drawer (inside LLM Chat panel) with current results.
+ * Call any time results change.
+ */
+function _syncResearchDrawer() {
+    const drawer   = document.getElementById("researchDrawer");
+    const cardList = document.getElementById("researchCardList");
+    const label    = document.getElementById("researchDrawerLabel");
+    if (!drawer || !cardList) return;
+
+    if (!llmResearchResults.length) {
+        drawer.classList.add("hidden");
+        return;
+    }
+
+    drawer.classList.remove("hidden");
+    if (label) {
+        label.textContent =
+            `Research Results \u2014 ${llmResearchResults.length} found`;
+    }
+    _buildResearchCards(cardList);
+}
+
+/**
+ * Sync the research result cards into the Gather Research panel (#grCardList).
+ * Safe to call even when the panel is not currently rendered — will no-op.
+ */
+function _syncGatherResearchPanel() {
+    const grCardList = document.getElementById("grCardList");
+    const grStatus   = document.getElementById("grStatus");
+    if (!grCardList) return;
+
+    if (!llmResearchResults.length) {
+        grCardList.innerHTML = "";
+        return;
+    }
+
+    if (grStatus) {
+        grStatus.textContent = `Found ${llmResearchResults.length} result(s) — tap a card to index or parse`;
+        grStatus.classList.remove("hidden");
+    }
+    _buildResearchCards(grCardList);
 }
 
 /**
@@ -641,7 +681,8 @@ function showResearchResultModal(result) {
             setStatus("error", "Not connected to server.");
             return;
         }
-        const provider = document.getElementById("llmProvider")?.value || "llama";
+        const provider = document.getElementById("llmProvider")?.value
+            || (llmProviders.length > 0 ? llmProviders[0].value : "llama");
         const model    = document.getElementById("llmModel")?.value    || "";
         wsManager.send("gather_research_action", "llm-chat", {
             action:    "index",
@@ -682,7 +723,8 @@ function showResearchResultModal(result) {
         llmResearchResults = llmResearchResults.filter(
             r => r.resultId !== result.resultId
         );
-        renderLlmChatMessages();
+        _syncResearchDrawer();
+        _syncGatherResearchPanel();
     };
 
     modal.classList.add("visible");
