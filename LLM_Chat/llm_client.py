@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 
 import websockets
 
+from bs4 import BeautifulSoup
+
 import config
 from llm_providers import (
     chat_completion, get_available_providers, get_system_prompt,
@@ -518,11 +520,63 @@ async def _handle_gather_research_action(ws, msg: dict) -> None:
         }))
 
 
+async def _fetch_page_body(url: str) -> str:
+    """
+    Fetch a webpage and return its visible body text with all layout noise removed.
+
+    Strips: <script>, <style>, <noscript>, <svg>, <head>, and the semantic
+    layout elements (<header>, <footer>, <nav>, <aside>) before extracting
+    text.  Returns at most 12 000 characters so the LLM context stays sane.
+    Returns an empty string on any network or parse error.
+    """
+    _STRIP_TAGS = {
+        "script", "style", "noscript", "svg", "head",
+        "header", "footer", "nav", "aside",
+    }
+    try:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (compatible; procMessenger/1.0; +research-indexer)"
+            )
+        }
+        timeout = aiohttp.ClientTimeout(total=20)
+        async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    logger.warning("_fetch_page_body: HTTP %s for %s", resp.status, url)
+                    return ""
+                html = await resp.text(errors="replace")
+    except Exception as exc:
+        logger.warning("_fetch_page_body fetch error (%s): %s", url, exc)
+        return ""
+
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup.find_all(_STRIP_TAGS):
+            tag.decompose()
+        # get_text with separator so adjacent block elements don't run together
+        text = soup.get_text(separator="\n", strip=True)
+        # Collapse runs of blank lines
+        import re
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        return text[:12_000]
+    except Exception as exc:
+        logger.warning("_fetch_page_body parse error (%s): %s", url, exc)
+        return ""
+
+
 async def _do_index_result(
     ws, source, flags, chat_name, result_id,
     url, title, snippet, provider, model,
 ) -> None:
-    """Summarise a result via LLM and forward it to procIndex for indexing."""
+    """
+    Full-page index pipeline:
+      Step 1 – Fetch the live page and strip layout noise to raw body text.
+      Step 2 – Ask the LLM to extract only the meaningful content from that text.
+      Step 3 – Ask the LLM to extract clean, domain-specific keywords from the content.
+      Then forward summary + keywords to procIndex.
+    Falls back to the Tavily snippet at each step if something goes wrong.
+    """
     # Find a connected procIndex client by type (name may differ)
     proc_index_target = _find_client_by_type("procIndex") or (
         "procIndex" if "procIndex" in _connected_clients else None
@@ -541,39 +595,62 @@ async def _do_index_result(
         }, flags))
         return
 
-    # Ask the LLM for a concise summary and clean keywords
-    summary = snippet  # safe fallback
-    keywords: list[str] = []
+    # ------------------------------------------------------------------
+    # Step 1: Fetch and strip the live page
+    # ------------------------------------------------------------------
+    logger.info("Indexing '%s' — fetching page body…", title)
+    page_text = await _fetch_page_body(url)
+    if not page_text:
+        logger.warning("Could not fetch page body for %s, falling back to snippet.", url)
+        page_text = snippet
+
+    # ------------------------------------------------------------------
+    # Step 2: LLM content extraction — distil the page down to just the
+    #         article / subject matter, discarding any remaining nav artefacts
+    # ------------------------------------------------------------------
+    content = page_text  # safe fallback
     try:
-        summary = await chat_completion(
+        content = await chat_completion(
             provider,
             [{
                 "role":    "user",
                 "content": (
-                    f"Summarize the following content in 3–5 sentences. "
-                    f"Output ONLY the summary sentences — no introduction, no preamble, "
-                    f"no 'Here is a summary:' or similar phrase. Start directly with the content.\n\n"
-                    f"Title: {title}\nURL: {url}\n\nContent:\n{snippet}"
+                    "You are a content extraction assistant. "
+                    "The text below is the visible body of a webpage after menus, "
+                    "headers, footers and scripts have been removed. "
+                    "Extract ONLY the substantive information about the page's subject matter. "
+                    "Remove any remaining navigation links, cookie notices, share buttons, "
+                    "author bios, or unrelated sidebar content. "
+                    "Output the extracted content as plain prose — no bullet points, "
+                    "no headings, no preamble, no 'Here is the content:' intro. "
+                    "If the page contains very little real content, output what is there.\n\n"
+                    f"Title: {title}\nURL: {url}\n\n"
+                    f"Page text:\n{page_text}"
                 ),
             }],
             mode="ask",
             model=model,
         )
     except Exception as exc:
-        logger.warning("Summary generation failed (using raw snippet): %s", exc)
+        logger.warning("Content extraction failed (using raw page text): %s", exc)
 
+    # ------------------------------------------------------------------
+    # Step 3: LLM keyword extraction from the cleaned content
+    # ------------------------------------------------------------------
+    keywords: list[str] = []
     try:
         kw_raw = await chat_completion(
             provider,
             [{
                 "role":    "user",
                 "content": (
-                    f"Extract 5–10 specific, meaningful keywords from the following text. "
-                    f"Focus on domain-specific nouns and key concepts. "
-                    f"Exclude generic words like 'observed', 'article', 'content', 'summary', "
-                    f"'sentence', 'concise', or place names unrelated to the topic. "
-                    f"Output ONLY a comma-separated list of keywords, nothing else.\n\n"
-                    f"Title: {title}\n\n{summary}"
+                    "Extract 5–10 specific, meaningful keywords from the following text. "
+                    "Focus on domain-specific nouns, named concepts, and technical terms. "
+                    "Exclude generic words like 'observed', 'article', 'content', 'website', "
+                    "'page', 'information', 'summary', 'sentence', 'concise', and any place "
+                    "names that are not central to the topic. "
+                    "Output ONLY a comma-separated list of keywords, nothing else.\n\n"
+                    f"Title: {title}\n\n{content}"
                 ),
             }],
             mode="ask",
@@ -583,14 +660,16 @@ async def _do_index_result(
     except Exception as exc:
         logger.warning("Keyword extraction failed: %s", exc)
 
-    # Forward to procIndex using the existing gather_research protocol
+    # ------------------------------------------------------------------
+    # Forward to procIndex
+    # ------------------------------------------------------------------
     await ws.send(build_message("gather_research", config.CLIENT_NAME, proc_index_target, {
         "status": "complete",
         "query":  title,
         "results": [{
             "url":      url,
             "title":    title,
-            "summary":  summary,
+            "summary":  content,
             "keywords": keywords,
         }],
     }))

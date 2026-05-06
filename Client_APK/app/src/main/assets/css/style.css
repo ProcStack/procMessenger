@@ -966,21 +966,6 @@ button:active {
 
 /* --- Gather Research – Result Cards --- */
 
-.research-results-section {
-    margin-top: 14px;
-    border-top: 1px solid var(--border);
-    padding-top: 8px;
-}
-
-.research-results-header {
-    font-size: 11px;
-    font-weight: bold;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    letter-spacing: 0.04em;
-    margin-bottom: 8px;
-}
-
 .research-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -1084,6 +1069,109 @@ button:active {
 .rr-modal-footer {
     flex-wrap: wrap;
     gap: 8px;
+}
+
+/* --- Research Results Drawer --- */
+
+.research-drawer {
+    margin-top: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--bg-secondary);
+}
+
+.research-drawer.hidden {
+    display: none;
+}
+
+.research-drawer-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.research-drawer-toggle:active {
+    background: rgba(87, 169, 216, 0.1);
+}
+
+.research-drawer-chevron {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.research-drawer-body {
+    max-height: 40vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px;
+}
+
+.research-drawer-body.collapsed {
+    display: none;
+}
+
+.research-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+/* --- Parsed Context Bar --- */
+
+.parsed-context-bar {
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: rgba(87, 169, 216, 0.08);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: 12px;
+}
+
+.parsed-context-bar.hidden {
+    display: none;
+}
+
+.parsed-context-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-bottom: 5px;
+}
+
+.parsed-context-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.parsed-context-chip {
+    display: inline-block;
+    background: rgba(57, 127, 255, 0.18);
+    color: var(--accent-light);
+    border: 1px solid rgba(57, 127, 255, 0.3);
+    border-radius: 10px;
+    padding: 2px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* --- File Browser Panel --- */
