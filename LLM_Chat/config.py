@@ -13,7 +13,7 @@ SERVER_PORT = 9734
 # --- Client Identity ---
 CLIENT_NAME = "llm-chat"
 CLIENT_TYPE = "llm"
-CAPABILITIES = ["llm_chat"]
+CAPABILITIES = ["llm_chat", "llm_extract_keywords"]
 
 # --- LLM Providers ---
 # Each provider needs its key set in .env
@@ -51,7 +51,10 @@ ATTACHMENTS_DIR = os.path.join(os.path.dirname(__file__), "attachments")
 # --- System Prompts ---
 # Build a dict of label -> absolute path.  "Default" always maps to System.md.
 _base_dir = os.path.dirname(__file__)
-SYSTEM_PROMPTS = {"Default": SYSTEM_PROMPT_FILE}
+SYSTEM_PROMPTS = {
+    "Default":          SYSTEM_PROMPT_FILE,
+    "extract_keywords": os.path.join(_base_dir, "System_extract_keywords.md"),
+}
 _raw_prompts = os.getenv("SYSTEM_PROMPTS", "")
 if _raw_prompts:
     try:

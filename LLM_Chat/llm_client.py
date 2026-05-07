@@ -346,6 +346,60 @@ async def handle_llm_message(ws, msg):
             await ws.send(reply)
         return
 
+    # --- Extract Keywords: called by procIndex to get LLM-suggested keywords ---
+    if msg_type == "llm_extract_keywords":
+        content = payload.get("content", "").strip()
+        provider = payload.get("provider") or next(
+            (k for k, v in config.LLM_PROVIDERS.items() if v.get("enabled")),
+            "llama",
+        )
+        model = payload.get("model", None)
+
+        if not content:
+            await ws.send(build_message("error", config.CLIENT_NAME, source, {
+                "code": "INVALID_MESSAGE",
+                "message": "content is required for llm_extract_keywords.",
+                "referenceId": msg_id,
+            }))
+            return
+
+        # Acknowledge receipt immediately so the caller knows the request arrived.
+        # The LLM may need to load the model into memory first, which can take
+        # a minute or more — the "thinking" status tells procIndex to keep waiting.
+        await ws.send(build_message("llm_extract_keywords", config.CLIENT_NAME, source, {
+            "status": "thinking",
+            "keywords": "",
+        }, flags))
+
+        from llm_providers import _loaded_model, _loaded_model_path
+        if _loaded_model is None:
+            logger.info("llm_extract_keywords: no model currently loaded — model will be loaded on first inference call.")
+        else:
+            logger.info(f"llm_extract_keywords: using already-loaded model '{_loaded_model_path}'.")
+
+        try:
+            keywords_text = await chat_completion(
+                provider,
+                [{"role": "user", "content": content}],
+                mode="ask",
+                model=model,
+                system_prompt_key="extract_keywords",
+            )
+        except Exception as e:
+            logger.error(f"llm_extract_keywords error: {e}")
+            await ws.send(build_message("llm_extract_keywords", config.CLIENT_NAME, source, {
+                "status": "error",
+                "keywords": "",
+                "error": str(e),
+            }, flags))
+            return
+
+        await ws.send(build_message("llm_extract_keywords", config.CLIENT_NAME, source, {
+            "status": "complete",
+            "keywords": keywords_text.strip(),
+        }, flags))
+        return
+
     logger.warning(f"Unhandled message type: {msg_type}")
 
 
@@ -913,6 +967,11 @@ async def client_loop():
 
                 if msg_type in ("error", "ack"):
                     logger.info(f"{msg_type}: {msg.get('payload', {})}")
+                    continue
+
+                # Silently ignore broadcast-only types that llm-chat doesn't act on
+                # (e.g. procIndex announce messages sent to "all")
+                if msg_type == "procIndex":
                     continue
 
                 # Handle all LLM-directed messages

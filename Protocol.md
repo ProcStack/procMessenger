@@ -646,6 +646,70 @@ Delete a saved chat session.
 }
 ```
 
+### `llm_extract_keywords`
+Ask the LLM Chat client to read a piece of content and return a focused, comma-separated list of
+keywords suitable for similarity-graph indexing.  The request is intentionally fire-and-forget —
+the LLM may need time to load a model into memory, so callers should not block waiting for a
+synchronous reply.
+
+The `flags.correlationId` of the **response** always matches the **`id`** of the original request,
+allowing callers to route the reply back to the correct context (e.g. an open dialog box).
+
+**Request** (any client → llm-chat):
+```json
+{
+  "type": "llm_extract_keywords",
+  "target": "llm-chat",
+  "payload": {
+    "content": "Full text content to analyse…",
+    "provider": "llama",
+    "model": null
+  }
+}
+```
+
+| Field      | Required | Description |
+|------------|----------|-------------|
+| `content`  | yes      | The text to extract keywords from |
+| `provider` | no       | LLM provider key (e.g. `"claude"`). Falls back to the first enabled provider |
+| `model`    | no       | Specific model ID. Falls back to provider default when `null` or omitted |
+
+**Response – Complete** (llm-chat → requester):
+```json
+{
+  "type": "llm_extract_keywords",
+  "source": "llm-chat",
+  "flags": { "correlationId": "<original-request-id>" },
+  "payload": {
+    "status": "complete",
+    "keywords": "rem sleep, theta waves, hypnagogic, neural oscillation, slow-wave sleep"
+  }
+}
+```
+
+**Response – Error** (llm-chat → requester):
+```json
+{
+  "type": "llm_extract_keywords",
+  "source": "llm-chat",
+  "flags": { "correlationId": "<original-request-id>" },
+  "payload": {
+    "status": "error",
+    "keywords": "",
+    "error": "LLM completion failed – connection refused"
+  }
+}
+```
+
+> **procIndex integration:** The procIndex *Ingest File* dialog includes an
+> **Extract Keywords via LLM** button.  When clicked it sends an `llm_extract_keywords` request
+> over the existing WebSocket connection, registers a callback keyed to the request `id`, and
+> immediately re-enables the dialog without blocking the UI thread.  When the response arrives the
+> WS receive loop fires the callback via a Qt signal, and the Lookup Text field is replaced with the
+> returned keywords.  A 2-minute timeout shows a warning if the LLM is still loading its model.
+
+---
+
 ### `llm_local_models`
 Request a list of locally available model files from the LLM Chat client.
 Scans the `models/` directory and any extra paths configured via `LLAMA_MODEL_PATHS` in `.env`.
@@ -1545,6 +1609,7 @@ The port is configurable in each component's config file:
 
 | Date       | Change |
 |------------|--------|
+| 2026-05-07 | Added `llm_extract_keywords` message type: fire-and-forget keyword extraction from content via the LLM Chat client; added procIndex `IngestDialog` integration note |
 | 2026-05-05 | Added `procIndex` message type section covering all actions (announce, search, get, ingest, ingest_batch, list, move, update, keywords, delete); added procIndex integration note to `gather_research`; mobile app now includes procIndex Search function with keyword search panel and entry viewer modal |
 | 2026-05-05 | Added `functions` field to `register` and `client_list`; server now routes messages only to clients advertising the relevant function; `file_list` updates broadcast only to `mobile` clients; `server_known_data` now includes `clients`; file operations are server-only (application clients never receive file messages); added `TARGET_FUNCTION_UNSUPPORTED` error code; mobile app redesigned with Client/Files/Logs tab layout; file browser moved to dedicated Files tab |
 | 2026-03-20 | Added File Transfer System: `file_list_announce`, `file_list`, `file_fetch`, `file_transfer_data`, `file_receive`, `file_receive_complete`; updated `register` to carry `fileList`; added `file_transfers` capability; added shared `transfers/` directory with `metadata.json` |
