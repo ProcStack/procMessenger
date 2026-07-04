@@ -22,18 +22,13 @@ import config
 
 logger = logging.getLogger("procMessenger.llm.prompt_builder")
 
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 
 # ---------------------------------------------------------------------------
 # Mode chunk files
 # ---------------------------------------------------------------------------
 
-# Each entry maps a mode value to an absolute path of a .md file whose
-# contents are appended to the base system prompt for that mode.
-_MODE_CHUNK_FILES: dict[str, str] = {
-    "gather_research": os.path.join(_BASE_DIR, "System_gather_research.md"),
-}
+# Loaded from config so paths stay in one place.
+_MODE_CHUNK_FILES: dict[str, str] = config.MODE_CHUNK_FILES
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +102,7 @@ def build_system_prompt(
     if system_prompt_key and system_prompt_key in config.SYSTEM_PROMPTS:
         path = config.SYSTEM_PROMPTS[system_prompt_key]
 
-    base = _load_file(path) or "You are a helpful AI assistant."
+    base = _load_file(path) or config.SYSTEM_PROMPT_FALLBACK
     parts: list[str] = [base]
 
     # 2. Injected context

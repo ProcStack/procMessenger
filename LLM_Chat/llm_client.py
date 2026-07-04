@@ -14,6 +14,7 @@ import logging
 import sys
 from datetime import datetime, timezone
 
+import aiohttp
 import websockets
 
 from bs4 import BeautifulSoup
@@ -290,7 +291,7 @@ async def handle_llm_message(ws, msg):
     if msg_type == "gather_research":
         query = payload.get("query", "").strip()
         chat_name = payload.get("chatName", "")
-        # Use the first enabled provider — prefer whatever is actually configured
+        # Use the first enabled provider - prefer whatever is actually configured
         _default_provider = next(
             (k for k, v in config.LLM_PROVIDERS.items() if v.get("enabled")),
             "llama",
@@ -365,7 +366,7 @@ async def handle_llm_message(ws, msg):
 
         # Acknowledge receipt immediately so the caller knows the request arrived.
         # The LLM may need to load the model into memory first, which can take
-        # a minute or more — the "thinking" status tells procIndex to keep waiting.
+        # a minute or more - the "thinking" status tells procIndex to keep waiting.
         await ws.send(build_message("llm_extract_keywords", config.CLIENT_NAME, source, {
             "status": "thinking",
             "keywords": "",
@@ -373,7 +374,7 @@ async def handle_llm_message(ws, msg):
 
         from llm_providers import _loaded_model, _loaded_model_path
         if _loaded_model is None:
-            logger.info("llm_extract_keywords: no model currently loaded — model will be loaded on first inference call.")
+            logger.info("llm_extract_keywords: no model currently loaded - model will be loaded on first inference call.")
         else:
             logger.info(f"llm_extract_keywords: using already-loaded model '{_loaded_model_path}'.")
 
@@ -407,6 +408,174 @@ async def handle_llm_message(ws, msg):
 # Gather Research helpers
 # ---------------------------------------------------------------------------
 
+async def _evaluate_result_via_llm(
+    provider: str,
+    model,
+    query: str,
+    result: dict,
+) -> tuple[bool, str]:
+    """
+    Ask the LLM (using System_evaluate_result.md) whether a single Tavily
+    result is genuinely relevant to the original research query.
+
+    The LLM may respond with one of three prefixes:
+      USEFUL:    include the result
+      DISCARD:   drop the result
+      READ_PAGE: fetch the full page and re-evaluate
+
+    Returns (keep, reason).  Defaults to keep=True on any error so that a
+    transient model failure never silently swallows all results.
+    """
+    title   = result.get("title",   "")
+    url     = result.get("url",     "")
+    snippet = result.get("snippet", "")
+
+    def _user_msg(content_label: str, content: str) -> dict:
+        return {
+            "role": "user",
+            "content": (
+                f"Research query: {query}\n\n"
+                f"Result title: {title}\n"
+                f"Result URL: {url}\n\n"
+                f"{content_label}:\n{content}"
+            ),
+        }
+
+    # --- First pass: evaluate using the Tavily snippet ---
+    try:
+        response = await chat_completion(
+            provider,
+            [_user_msg("Snippet", snippet)],
+            mode="evaluate_result",
+            model=model,
+            system_prompt_key="evaluate_result",
+        )
+    except Exception as exc:
+        logger.warning("_evaluate_result_via_llm snippet pass failed for %s: %s", url, exc)
+        return True, "evaluation error - included by default"
+
+    response = response.strip()
+
+    # --- Optional second pass: LLM requested the full page ---
+    if response.upper().startswith("READ_PAGE"):
+        logger.info("evaluate_result: page read requested for '%s'", url)
+        page_text = await _fetch_page_body(url)
+        if not page_text:
+            logger.warning("evaluate_result: page fetch failed for %s - including by default", url)
+            return True, "page fetch failed - included by default"
+        try:
+            response = await chat_completion(
+                provider,
+                [_user_msg("Full page content", page_text)],
+                mode="evaluate_result",
+                model=model,
+                system_prompt_key="evaluate_result",
+            )
+        except Exception as exc:
+            logger.warning("_evaluate_result_via_llm page pass failed for %s: %s", url, exc)
+            return True, "page-pass evaluation error - included by default"
+        response = response.strip()
+
+    upper = response.upper()
+    if upper.startswith("DISCARD"):
+        reason = response[7:].lstrip(": ").strip()
+        logger.info("evaluate_result DISCARD '%s' - %s", title, reason)
+        return False, reason
+
+    # USEFUL or any unexpected format → include
+    reason = response[6:].lstrip(": ").strip() if upper.startswith("USEFUL") else response
+    logger.info("evaluate_result USEFUL  '%s' - %s", title, reason[:120])
+    return True, reason
+
+
+async def _filter_and_send_results(
+    ws,
+    source: str,
+    flags: dict,
+    chat_name: str,
+    search_query: str,
+    results: list,
+    provider: str,
+    model,
+) -> None:
+    """
+    Background task: evaluate every Tavily result via LLM, then send the
+    filtered list to the requesting client - but only if it is still connected.
+
+    Up to 3 evaluations run concurrently (semaphore-limited) so that the LLM
+    is not flooded while still completing in reasonable wall-clock time.
+    """
+    if not results:
+        if source in _connected_clients:
+            try:
+                await ws.send(build_message("gather_research_results", config.CLIENT_NAME, source, {
+                    "chatName":       chat_name,
+                    "searchQuery":    search_query,
+                    "totalFound":     0,
+                    "totalEvaluated": 0,
+                    "discarded":      0,
+                    "results":        [],
+                    "error":          "",
+                }, flags))
+            except Exception as exc:
+                logger.warning("_filter_and_send_results: send failed: %s", exc)
+        return
+
+    sem = asyncio.Semaphore(3)
+
+    async def _eval_one(r: dict) -> tuple[dict, bool, str]:
+        async with sem:
+            keep, reason = await _evaluate_result_via_llm(provider, model, search_query, r)
+        return r, keep, reason
+
+    logger.info(
+        "filter_and_send: evaluating %d result(s) for '%s'", len(results), search_query
+    )
+
+    eval_tasks = [asyncio.create_task(_eval_one(r)) for r in results]
+    outcomes   = await asyncio.gather(*eval_tasks, return_exceptions=True)
+
+    kept: list[dict] = []
+    discarded_count = 0
+    for outcome in outcomes:
+        if isinstance(outcome, Exception):
+            logger.warning("evaluate task raised exception: %s", outcome)
+            continue
+        result, keep, reason = outcome
+        if keep:
+            result["evalReason"] = reason
+            kept.append(result)
+        else:
+            discarded_count += 1
+
+    logger.info(
+        "filter_and_send: %d kept, %d discarded for '%s'",
+        len(kept), discarded_count, search_query,
+    )
+
+    # Check connectivity before sending - the user may have navigated away
+    if source not in _connected_clients:
+        logger.info(
+            "filter_and_send: client '%s' disconnected before results were ready - dropping.", source
+        )
+        return
+
+    try:
+        await ws.send(build_message("gather_research_results", config.CLIENT_NAME, source, {
+            "chatName":       chat_name,
+            "searchQuery":    search_query,
+            "totalFound":     len(kept),
+            "totalEvaluated": len(results),
+            "discarded":      discarded_count,
+            "results":        kept,
+            "error":          "",
+        }, flags))
+    except Exception as exc:
+        logger.warning(
+            "filter_and_send: failed to send results to '%s': %s", source, exc
+        )
+
+
 async def _reformulate_search_query(
     provider: str,
     query: str,
@@ -424,22 +593,10 @@ async def _reformulate_search_query(
     try:
         result = await chat_completion(
             provider,
-            [{
-                "role": "user",
-                "content": (
-                    "You are a search-query expert. "
-                    "Interpret the following research request and rephrase it using the most "
-                    "precise, specific, and technically accurate terminology you know — "
-                    "so that a web search engine returns the most relevant results. "
-                    "Replace informal or colloquial phrasing with proper domain-specific terms "
-                    "(e.g. 'pre-sleep visuals' → 'hypnagogic hallucinations'). "
-                    "Respond with ONLY the reformulated search query — no explanation, "
-                    "no quotes, no preamble, no punctuation at the end, no extra lines.\n\n"
-                    f"Research request: {query}"
-                ),
-            }],
+            [{"role": "user", "content": f"Research request: {query}"}],
             mode="ask",
             model=model,
+            system_prompt_key="reformulate_query",
         )
         for line in result.strip().splitlines():
             cleaned = line.strip().strip("\"'").strip()
@@ -484,7 +641,7 @@ async def _handle_gather_research(
         }, flags))
         return
 
-    # Step 1: Derive search query — use raw_query if already known, otherwise ask the LLM
+    # Step 1: Derive search query - use raw_query if already known, otherwise ask the LLM
     await ws.send(build_message("llm_chat", config.CLIENT_NAME, source, {
         "chatName": chat_name,
         "status": "thinking",
@@ -521,7 +678,7 @@ async def _handle_gather_research(
         }, flags))
         return
 
-    # Step 1b: LLM-based query reformulation — replace vague or colloquial
+    # Step 1b: LLM-based query reformulation - replace vague or colloquial
     # phrasing with precise, domain-specific terminology before hitting Tavily.
     original_query = search_query
     search_query = await _reformulate_search_query(provider, search_query, model)
@@ -556,14 +713,14 @@ async def _handle_gather_research(
         )
     elif not results:
         ack_text = (
-            f"Searched Tavily for **{search_query}**{reformulation_note} — no results found.\n\n"
+            f"Searched Tavily for **{search_query}**{reformulation_note} - no results found.\n\n"
             "Try rephrasing or broadening the query."
         )
     else:
         ack_text = (
             f"Searching Tavily for: **{search_query}**{reformulation_note}\n\n"
             f"Found **{len(results)}** result(s). "
-            "Tap any result card below to index or parse its contents."
+            "Evaluating each for relevance - results will arrive shortly."
         )
 
     append_message(chat_name, "assistant", ack_text,
@@ -576,17 +733,15 @@ async def _handle_gather_research(
         "links": [],
     }, flags))
 
-    # Step 4: Assign stable result IDs and send the results payload
+    # Step 4: Assign stable result IDs then evaluate + filter in the background.
+    # The background task checks client connectivity before sending, so it is safe
+    # to fire-and-forget even if this takes a long time.
     for r in results:
         r["resultId"] = str(uuid.uuid4())
 
-    await ws.send(build_message("gather_research_results", config.CLIENT_NAME, source, {
-        "chatName":    chat_name,
-        "searchQuery": search_query,
-        "totalFound":  len(results),
-        "results":     results,
-        "error":       error,
-    }, flags))
+    asyncio.create_task(_filter_and_send_results(
+        ws, source, flags, chat_name, search_query, results, provider, model
+    ))
 
 
 async def _handle_gather_research_action(ws, msg: dict) -> None:
@@ -707,14 +862,14 @@ async def _do_index_result(
     # ------------------------------------------------------------------
     # Step 1: Fetch and strip the live page
     # ------------------------------------------------------------------
-    logger.info("Indexing '%s' — fetching page body…", title)
+    logger.info("Indexing '%s' - fetching page body…", title)
     page_text = await _fetch_page_body(url)
     if not page_text:
         logger.warning("Could not fetch page body for %s, falling back to snippet.", url)
         page_text = snippet
 
     # ------------------------------------------------------------------
-    # Step 2: LLM content extraction — distil the page down to just the
+    # Step 2: LLM content extraction - distil the page down to just the
     #         article / subject matter, discarding any remaining nav artefacts
     # ------------------------------------------------------------------
     content = page_text  # safe fallback
@@ -723,22 +878,11 @@ async def _do_index_result(
             provider,
             [{
                 "role":    "user",
-                "content": (
-                    "You are a content extraction assistant. "
-                    "The text below is the visible body of a webpage after menus, "
-                    "headers, footers and scripts have been removed. "
-                    "Extract ONLY the substantive information about the page's subject matter. "
-                    "Remove any remaining navigation links, cookie notices, share buttons, "
-                    "author bios, or unrelated sidebar content. "
-                    "Output the extracted content as plain prose — no bullet points, "
-                    "no headings, no preamble, no 'Here is the content:' intro. "
-                    "If the page contains very little real content, output what is there.\n\n"
-                    f"Title: {title}\nURL: {url}\n\n"
-                    f"Page text:\n{page_text}"
-                ),
+                "content": f"Title: {title}\nURL: {url}\n\nPage text:\n{page_text}",
             }],
             mode="ask",
             model=model,
+            system_prompt_key="content_extraction",
         )
     except Exception as exc:
         logger.warning("Content extraction failed (using raw page text): %s", exc)
@@ -750,20 +894,10 @@ async def _do_index_result(
     try:
         kw_raw = await chat_completion(
             provider,
-            [{
-                "role":    "user",
-                "content": (
-                    "Extract 5–10 specific, meaningful keywords from the following text. "
-                    "Focus on domain-specific nouns, named concepts, and technical terms. "
-                    "Exclude generic words like 'observed', 'article', 'content', 'website', "
-                    "'page', 'information', 'summary', 'sentence', 'concise', and any place "
-                    "names that are not central to the topic. "
-                    "Output ONLY a comma-separated list of keywords, nothing else.\n\n"
-                    f"Title: {title}\n\n{content}"
-                ),
-            }],
+            [{"role": "user", "content": f"Title: {title}\n\n{content}"}],
             mode="ask",
             model=model,
+            system_prompt_key="extract_keywords",
         )
         keywords = [k.strip().lower() for k in kw_raw.split(",") if k.strip()][:10]
     except Exception as exc:

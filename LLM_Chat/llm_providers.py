@@ -39,7 +39,7 @@ def get_system_prompt(prompt_key=None):
         with open(path, "r", encoding="utf-8") as f:
             return f.read().strip()
     except FileNotFoundError:
-        return "You are a helpful AI assistant."
+        return config.SYSTEM_PROMPT_FALLBACK
 
 
 def get_available_system_prompts():
@@ -517,13 +517,7 @@ async def extract_search_query(
                 return m["content"][:300]
         return ""
 
-    system_prompt = (
-        "You are a search-query extraction assistant. "
-        "Given the conversation below, produce a single, precise web search query "
-        "that would best answer the user's current research need. "
-        "Respond with ONLY the search query string – no explanation, no quotes, "
-        "no punctuation at the end, no extra lines."
-    )
+    system_prompt = get_system_prompt("extract_search_query")
 
     # Limit context to the last 6 turns for efficiency
     context = messages[-6:] if len(messages) > 6 else messages

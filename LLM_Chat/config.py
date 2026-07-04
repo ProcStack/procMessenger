@@ -43,17 +43,31 @@ LLM_PROVIDERS = {
 }
 
 # --- File Paths ---
-SYSTEM_PROMPT_FILE = os.path.join(os.path.dirname(__file__), "System.md")
+SYSTEM_PROMPT_FILE = os.path.join(os.path.dirname(__file__), "System_def.md")
 MESSAGE_FUNCTIONS_FILE = os.path.join(os.path.dirname(__file__), "message_functions.json")
 CHAT_HISTORY_DIR = os.path.join(os.path.dirname(__file__), "chat_history")
 ATTACHMENTS_DIR = os.path.join(os.path.dirname(__file__), "attachments")
 
 # --- System Prompts ---
-# Build a dict of label -> absolute path.  "Default" always maps to System.md.
+# Build a dict of label -> absolute path.  "Default" always maps to System_def.md.
 _base_dir = os.path.dirname(__file__)
 SYSTEM_PROMPTS = {
-    "Default":          SYSTEM_PROMPT_FILE,
-    "extract_keywords": os.path.join(_base_dir, "System_extract_keywords.md"),
+    "Default":              SYSTEM_PROMPT_FILE,
+    "extract_keywords":     os.path.join(_base_dir, "System_def_extract_keywords.md"),
+    "evaluate_result":      os.path.join(_base_dir, "System_def_evaluate_result.md"),
+    "extract_search_query": os.path.join(_base_dir, "System_def_extract_search_query.md"),
+    "reformulate_query":    os.path.join(_base_dir, "System_def_reformulate_query.md"),
+    "content_extraction":   os.path.join(_base_dir, "System_def_content_extraction.md"),
+}
+
+# Fallback text used when a system prompt file is missing or empty.
+SYSTEM_PROMPT_FALLBACK = "I'm a helpful AI assistant named 'Nova'."
+
+# --- Mode Chunk Files ---
+# Maps a mode value to an absolute path of a .md file whose contents are
+# appended to the base system prompt for that mode.
+MODE_CHUNK_FILES: dict[str, str] = {
+    "gather_research": os.path.join(_base_dir, "System_def_gather_research.md"),
 }
 _raw_prompts = os.getenv("SYSTEM_PROMPTS", "")
 if _raw_prompts:
