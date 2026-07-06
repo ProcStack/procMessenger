@@ -66,6 +66,21 @@ def get_aggregated_file_list():
     return all_files
 
 
+def update_client_file_list(client_name, files):
+    """Update file list for a client and keep server/local companion lists in sync.
+    
+    Since 'server', 'Python Runtime', and 'Node.js Runtime' run on the same system,
+    reading and writing to the same data/transfers/metadata.json, updating any of them
+    means we should synchronize all connected local views to avoid stale data.
+    """
+    client_file_lists[client_name] = files
+    local_names = {"server", "Python Runtime", "Node.js Runtime"}
+    if client_name in local_names:
+        for name in local_names:
+            if name in client_file_lists or name == "server":
+                client_file_lists[name] = files
+
+
 def build_message(msg_type, source, target, payload, flags=None):
     """Build a protocol-compliant message envelope."""
     return json.dumps({
@@ -193,7 +208,7 @@ async def route_message(websocket, raw):
 
         # If the registering client advertises file_transfers and provided a file list, record it.
         if "file_transfers" in capabilities and isinstance(payload.get("fileList"), list):
-            client_file_lists[name] = payload["fileList"]
+            update_client_file_list(name, payload["fileList"])
             logger.info(f"[FILES] {name} announced {len(payload['fileList'])} file(s) on register.")
 
         # Announce the new client to all others
@@ -223,7 +238,7 @@ async def route_message(websocket, raw):
     # A client is announcing its local file list (sent after registration or after a new file is saved).
     if msg_type == "file_list_announce":
         files = payload.get("files", [])
-        client_file_lists[source] = files
+        update_client_file_list(source, files)
         logger.info(f"[FILES] {source} updated file list: {len(files)} file(s).")
         # Only notify mobile clients — application clients have no use for file lists
         agg_msg = build_message("file_list", "server", "all", {
@@ -240,64 +255,40 @@ async def route_message(websocket, raw):
         await websocket.send(reply)
         return
 
-    # Mobile requesting a file from a specific owner client.
+    # Mobile requesting a file from the server.
+    # Since all runtime components run in the same project directory,
+    # the server can serve all files from disk directly without relaying.
     if msg_type == "file_fetch" and target == "server":
-        owner_client = payload.get("ownerClient", "")
-        if not owner_client:
+        record, chunks = _handlers.read_file_as_chunks(payload.get("fileId", ""))
+        if record is None:
             err_msg = build_message("error", "server", source, {
-                "code": "MISSING_OWNER",
-                "message": "file_fetch requires ownerClient in payload.",
+                "code": "FILE_NOT_FOUND",
+                "message": f"File '{payload.get('fileId', '')}' not found on server.",
                 "referenceId": msg_id,
             })
             await websocket.send(err_msg)
             return
-
-        # If the file is owned by the server itself, serve it directly
-        if owner_client == "server":
-            record, chunks = _handlers.read_file_as_chunks(payload.get("fileId", ""))
-            if record is None:
-                err_msg = build_message("error", "server", source, {
-                    "code": "FILE_NOT_FOUND",
-                    "message": f"File '{payload.get('fileId', '')}' not found on server.",
-                    "referenceId": msg_id,
-                })
-                await websocket.send(err_msg)
-                return
-            for c in chunks:
-                chunk_msg = build_message("file_transfer_data", "server", source, {
-                    "fileId": record["fileId"],
-                    "fileName": record["fileName"],
-                    "fileType": record["fileType"],
-                    "fileSize": record["fileSize"],
-                    "sentAt": record.get("sentAt", ""),
-                    "source": record.get("source", ""),
-                    "target": source,
-                    "chunkIndex": c["chunkIndex"],
-                    "totalChunks": c["totalChunks"],
-                    "data": c["data"],
-                })
-                await websocket.send(chunk_msg)
-            return
-
-        forward = build_message("file_fetch", "server", owner_client, {
-            **payload,
-            "requestedBy": source,
-        })
-        delivered = await send_to(owner_client, forward)
-        if not delivered:
-            err_msg = build_message("error", "server", source, {
-                "code": "OWNER_NOT_CONNECTED",
-                "message": f"File owner '{owner_client}' is not connected.",
-                "referenceId": msg_id,
+        for c in chunks:
+            chunk_msg = build_message("file_transfer_data", "server", source, {
+                "fileId": record["fileId"],
+                "fileName": record["fileName"],
+                "fileType": record["fileType"],
+                "fileSize": record["fileSize"],
+                "sentAt": record.get("sentAt", ""),
+                "source": record.get("source", ""),
+                "target": source,
+                "chunkIndex": c["chunkIndex"],
+                "totalChunks": c["totalChunks"],
+                "data": c["data"],
             })
-            await websocket.send(err_msg)
+            await websocket.send(chunk_msg)
         return
 
     # Mobile uploading a file to be stored directly on the server
     if msg_type == "file_upload" and target == "server":
         done, record = _handlers.receive_file_chunk({**payload, "source": source, "target": "server"})
         if done:
-            client_file_lists["server"] = _handlers.get_file_list()
+            update_client_file_list("server", _handlers.get_file_list())
             # Only notify mobile clients
             agg_msg = build_message("file_list", "server", "all", {
                 "files": get_aggregated_file_list(),
@@ -315,33 +306,24 @@ async def route_message(websocket, raw):
             await websocket.send(reply)
         return
 
-    # Handle file_delete: serve server-owned files inline; relay others to ownerClient.
+    # Handle file_delete: Since all files are in the shared folder, delete directly on the server.
     if msg_type == "file_delete" and target == "server":
-        owner_client = payload.get("ownerClient", "")
-        if not owner_client:
-            await websocket.send(build_message("error", "server", source, {
-                "code": "MISSING_OWNER",
-                "message": "file_delete requires ownerClient in payload.",
+        response_type, response_payload = _handlers.handle_file_delete(payload)
+        if response_payload.get("deleted"):
+            update_client_file_list("server", _handlers.get_file_list())
+            await broadcast_to_mobile(build_message("file_list", "server", "all", {
+                "files": get_aggregated_file_list()
             }))
-            return
-        if owner_client == "server":
-            response_type, response_payload = _handlers.handle_file_delete(payload)
-            if response_payload.get("deleted"):
-                client_file_lists["server"] = _handlers.get_file_list()
-                await broadcast_to_mobile(build_message("file_list", "server", "all", {
-                    "files": get_aggregated_file_list()
-                }))
-            await websocket.send(build_message(response_type, "server", source, response_payload))
-            return
-        forward = build_message("file_delete", "server", owner_client, {
-            **payload, "requestedBy": source,
+        await websocket.send(build_message(response_type, "server", source, response_payload))
+        return
+
+    # Trigger a file list reload on the server
+    if msg_type == "server_reload_files" and target == "server":
+        update_client_file_list("server", _handlers.get_file_list())
+        agg_msg = build_message("file_list", "server", "all", {
+            "files": get_aggregated_file_list(),
         })
-        delivered = await send_to(owner_client, forward)
-        if not delivered:
-            await websocket.send(build_message("error", "server", source, {
-                "code": "OWNER_NOT_CONNECTED",
-                "message": f"File owner '{owner_client}' is not connected.",
-            }))
+        await broadcast_to_mobile(agg_msg)
         return
 
     # Consolidated "known data" request
@@ -475,6 +457,8 @@ async def handle_connection(websocket):
 
 async def start_server():
     """Start the WebSocket server."""
+    # Pre-populate server's own file list from disk at startup
+    client_file_lists["server"] = _handlers.get_file_list()
     logger.info(f"Starting procMessenger server on ws://{config.HOST}:{config.PORT}")
     async with websockets.serve(
         handle_connection,

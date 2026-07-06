@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 import websockets
 
 import config
-from handlers import handle_message, get_file_list
+from handlers import handle_message
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,14 +69,6 @@ async def start_server_background():
         return None
 
 
-async def announce_file_list(ws):
-    """Send our local file list to the server so it can update the aggregate."""
-    files = get_file_list()
-    msg = build_message("file_list_announce", config.CLIENT_NAME, "server", {"files": files})
-    await ws.send(msg)
-    logger.info(f"Announced file list ({len(files)} file(s)).")
-
-
 async def client_loop():
     """Main client connection loop."""
     uri = f"ws://127.0.0.1:{config.PORT}"
@@ -93,14 +85,13 @@ async def client_loop():
 
     try:
         async with websockets.connect(uri) as ws:
-            # Register with the server - include local file list for immediate aggregation
+            # Register with the server
             reg_msg = build_message("register", config.CLIENT_NAME, "server", {
                 "clientType": "python",
                 "capabilities": config.CAPABILITIES,
                 "functions": ["run_script"],
                 "hostname": socket.gethostname(),
                 "nickname": "",
-                "fileList": get_file_list(),
             })
             await ws.send(reg_msg)
             logger.info("Registered with server.")
@@ -151,36 +142,6 @@ async def client_loop():
                         sys.exit(1)
                     continue
 
-                # The server forwarded a file_fetch request from mobile - stream chunks back.
-                if msg_type == "file_fetch":
-                    requested_by = payload.get("requestedBy", source)
-                    response_type, response_payload = handle_message(msg)
-                    if response_type == "__multi__" and isinstance(response_payload, list):
-                        for (chunk_type, chunk_data) in response_payload:
-                            chunk_msg = build_message(
-                                chunk_type, config.CLIENT_NAME, requested_by, chunk_data,
-                                flags={"correlationId": msg.get("id", "")},
-                            )
-                            await ws.send(chunk_msg)
-                        logger.info(f"Sent file {payload.get('fileId')} to {requested_by}.")
-                    elif response_type:
-                        err_msg = build_message(response_type, config.CLIENT_NAME, requested_by, response_payload)
-                        await ws.send(err_msg)
-                    continue
-
-                # Incoming file chunk to be stored here
-                if msg_type == "file_receive":
-                    response_type, response_payload = handle_message(msg)
-                    if response_type and response_payload:
-                        reply = build_message(
-                            response_type, config.CLIENT_NAME, source, response_payload,
-                            flags={"correlationId": msg.get("id", "")},
-                        )
-                        await ws.send(reply)
-                        if response_type == "file_receive_complete":
-                            await announce_file_list(ws)
-                    continue
-
                 # run_script can block for minutes (e.g. Gradle build).
                 # Run it in a thread so the event loop stays live for pings.
                 if msg_type == "run_script":
@@ -193,23 +154,10 @@ async def client_loop():
                         await ws.send(reply)
                         logger.info(f"Sent response: type={response_type} to={source}")
                         if isinstance(response_payload, dict) and response_payload.get("registeredFiles"):
-                            await announce_file_list(ws)
+                            reload_msg = build_message("server_reload_files", config.CLIENT_NAME, "server", {})
+                            await ws.send(reload_msg)
                             n = len(response_payload["registeredFiles"])
-                            logger.info(f"[SCRIPT] File list announced ({n} new file(s)).")
-                    continue
-
-                # file_delete: handle, reply to original requestor, re-announce file list.
-                if msg_type == "file_delete":
-                    requested_by = payload.get("requestedBy", source)
-                    response_type, response_payload = handle_message(msg)
-                    if response_type and response_payload:
-                        reply = build_message(
-                            response_type, config.CLIENT_NAME, requested_by, response_payload,
-                            flags={"correlationId": msg.get("id", "")},
-                        )
-                        await ws.send(reply)
-                        if response_payload.get("deleted"):
-                            await announce_file_list(ws)
+                            logger.info(f"[SCRIPT] Notified server to reload files ({n} new file(s)).")
                     continue
 
                 # Handle all other actionable messages

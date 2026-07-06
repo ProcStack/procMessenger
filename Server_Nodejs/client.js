@@ -11,7 +11,7 @@ const { v4: uuidv4 } = require("uuid");
 const WebSocket = require("ws");
 const config = require("./config");
 const { startServer, buildMessage } = require("./server");
-const { handleMessage, getFileList, upsertMeta, loadMeta } = require("./handlers");
+const { handleMessage } = require("./handlers");
 
 let serverInstance = null;
 
@@ -50,13 +50,12 @@ async function connectAsClient() {
     ws.on("open", () => {
         console.log("[CLIENT] Connected to server.");
 
-        // Register - include local file list so the server can aggregate it immediately
+        // Register with the server
         const regMsg = buildMessage("register", config.CLIENT_NAME, "server", {
             clientType: "nodejs",
             capabilities: config.CAPABILITIES,
             hostname: os.hostname(),
             nickname: "",
-            fileList: getFileList(),
         });
         ws.send(regMsg);
         console.log("[CLIENT] Registered.");
@@ -79,12 +78,6 @@ async function connectAsClient() {
             const clients = (msg.payload || {}).clients || [];
             const names = clients.map((c) => c.name);
             console.log(`[CLIENT] Connected clients: ${names.join(", ")}`);
-            return;
-        }
-
-        if (type === "file_list") {
-            const files = (payload.files || []);
-            console.log(`[CLIENT] Received aggregated file list (${files.length} file(s)).`);
             return;
         }
 
@@ -111,48 +104,6 @@ async function connectAsClient() {
             if (p.code === "DUPLICATE_CLIENT") {
                 console.error("[CLIENT] This hostname already has a client of this type connected. Exiting.");
                 process.exit(1);
-            }
-            return;
-        }
-
-        // The server has forwarded a file_fetch request from a mobile/other client.
-        // Stream the file back in chunks directly to the requester via the server.
-        if (type === "file_fetch") {
-            const requestedBy = payload.requestedBy || source;
-            const fileId = payload.fileId || "";
-            if (!fileId) return;
-
-            const [retType, retPayload] = await handleMessage(msg);
-            if (retType === "__multi__" && Array.isArray(retPayload)) {
-                for (const chunk of retPayload) {
-                    const chunkMsg = buildMessage(
-                        chunk.type,
-                        config.CLIENT_NAME,
-                        requestedBy,
-                        chunk.payload,
-                        { correlationId: msg.id || "" }
-                    );
-                    ws.send(chunkMsg);
-                }
-                console.log(`[CLIENT] Sent file ${fileId} to ${requestedBy}.`);
-            } else if (retType) {
-                const errMsg = buildMessage(retType, config.CLIENT_NAME, requestedBy, retPayload);
-                ws.send(errMsg);
-            }
-            return;
-        }
-
-        // Incoming file chunk from another client being stored here
-        if (type === "file_receive") {
-            const [retType, retPayload] = await handleMessage(msg);
-            if (retType) {
-                const reply = buildMessage(retType, config.CLIENT_NAME, source, retPayload,
-                    { correlationId: msg.id || "" });
-                ws.send(reply);
-                // If a new file was fully saved, announce the updated file list
-                if (retType === "file_receive_complete") {
-                    announceFileList(ws);
-                }
             }
             return;
         }
@@ -192,18 +143,6 @@ async function connectAsClient() {
     ws.on("error", (err) => {
         console.error(`[CLIENT] Error: ${err.message}`);
     });
-}
-
-/**
- * Announce our current local file list to the server so it can update the aggregate.
- */
-function announceFileList(ws) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const msg = buildMessage("file_list_announce", config.CLIENT_NAME, "server", {
-        files: getFileList(),
-    });
-    ws.send(msg);
-    console.log(`[CLIENT] Announced file list (${getFileList().length} file(s)).`);
 }
 
 /**

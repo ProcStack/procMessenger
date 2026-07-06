@@ -101,6 +101,25 @@ function getAggregatedFileList() {
     return all;
 }
 
+/**
+ * Update file list for a client and keep server/local companion lists in sync.
+ *
+ * Since 'server', 'Python Runtime', and 'Node.js Runtime' run on the same system,
+ * reading and writing to the same data/transfers/metadata.json, updating any of them
+ * means we should synchronize all connected local views to avoid stale data.
+ */
+function updateClientFileList(clientName, files) {
+    clientFileLists.set(clientName, files);
+    const localNames = ["server", "Python Runtime", "Node.js Runtime"];
+    if (localNames.includes(clientName)) {
+        for (const name of localNames) {
+            if (clientFileLists.has(name) || name === "server") {
+                clientFileLists.set(name, files);
+            }
+        }
+    }
+}
+
 function broadcast(message, exclude = null) {
     for (const [ws] of clients) {
         if (ws !== exclude && ws.readyState === 1) {
@@ -197,7 +216,7 @@ function routeMessage(ws, raw) {
 
         // If a file_transfers-capable client registers and provided an inline file list, record it.
         if (capabilities.includes("file_transfers") && Array.isArray(payload.fileList)) {
-            clientFileLists.set(name, payload.fileList);
+            updateClientFileList(name, payload.fileList);
             console.log(`[FILES] ${name} announced ${payload.fileList.length} file(s) on register.`);
         }
 
@@ -223,7 +242,7 @@ function routeMessage(ws, raw) {
     // A client is announcing its local file list (sent after registration or after a new file is saved).
     if (type === "file_list_announce") {
         const files = payload.files || [];
-        clientFileLists.set(source, files);
+        updateClientFileList(source, files);
         console.log(`[FILES] ${source} updated file list: ${files.length} file(s).`);
         // Only notify mobile clients — application clients have no use for file lists
         const aggMsg = buildMessage("file_list", "server", "all", {
@@ -312,65 +331,35 @@ function routeMessage(ws, raw) {
         return;
     }
 
-    // Mobile requesting a file from a specific owner client.
-    // The server acts as a relay - forward to the ownerClient, which will send file_transfer_data
-    // chunks back with target = original requester (mobile).
+    // Mobile requesting a file from the server.
+    // Since all runtime components run in the same project directory,
+    // the server can serve all files from disk directly without relaying.
     if (type === "file_fetch" && target === "server") {
-        const ownerClient = payload.ownerClient || "";
-        if (!ownerClient) {
+        const result = handlers.readFileAsChunks(payload.fileId);
+        if (!result) {
             const errMsg = buildMessage("error", "server", source, {
-                code: "MISSING_OWNER",
-                message: "file_fetch requires ownerClient in payload.",
+                code: "FILE_NOT_FOUND",
+                message: `File '${payload.fileId}' not found on server.`,
                 referenceId: msgId,
             });
             ws.send(errMsg);
             return;
         }
-
-        // If the file is owned by the server, serve it directly without a relay
-        if (ownerClient === "server") {
-            const result = handlers.readFileAsChunks(payload.fileId);
-            if (!result) {
-                const errMsg = buildMessage("error", "server", source, {
-                    code: "FILE_NOT_FOUND",
-                    message: `File '${payload.fileId}' not found on server.`,
-                    referenceId: msgId,
-                });
-                ws.send(errMsg);
-                return;
-            }
-            const { record, chunks } = result;
-            for (const c of chunks) {
-                const chunkMsg = buildMessage("file_transfer_data", "server", source, {
-                    fileId: record.fileId,
-                    fileName: record.fileName,
-                    fileType: record.fileType,
-                    fileSize: record.fileSize,
-                    sentAt: record.sentAt || "",
-                    source: record.source || "",
-                    target: source,
-                    chunkIndex: c.chunkIndex,
-                    totalChunks: c.totalChunks,
-                    data: c.data,
-                });
-                ws.send(chunkMsg);
-            }
-            return;
-        }
-
-        // Forward the request to the ownerClient, tagging requestedBy so the client knows where to reply
-        const forward = buildMessage("file_fetch", "server", ownerClient, {
-            ...payload,
-            requestedBy: source,
-        });
-        const delivered = sendTo(ownerClient, forward);
-        if (!delivered) {
-            const errMsg = buildMessage("error", "server", source, {
-                code: "OWNER_NOT_CONNECTED",
-                message: `File owner '${ownerClient}' is not connected.`,
-                referenceId: msgId,
+        const { record, chunks } = result;
+        for (const c of chunks) {
+            const chunkMsg = buildMessage("file_transfer_data", "server", source, {
+                fileId: record.fileId,
+                fileName: record.fileName,
+                fileType: record.fileType,
+                fileSize: record.fileSize,
+                sentAt: record.sentAt || "",
+                source: record.source || "",
+                target: source,
+                chunkIndex: c.chunkIndex,
+                totalChunks: c.totalChunks,
+                data: c.data,
             });
-            ws.send(errMsg);
+            ws.send(chunkMsg);
         }
         return;
     }
@@ -381,7 +370,7 @@ function routeMessage(ws, raw) {
         if (result.done) {
             const rec = result.record;
             // Register the server's own file list so it appears in the aggregate
-            clientFileLists.set("server", handlers.getFileList());
+            updateClientFileList("server", handlers.getFileList());
             // Notify only mobile clients — application clients have no use for file lists
             const aggMsg = buildMessage("file_list", "server", "all", {
                 files: getAggregatedFileList(),
@@ -402,32 +391,24 @@ function routeMessage(ws, raw) {
         return;
     }
 
-    // Handle file_delete: serve server-owned files inline; relay others to ownerClient.
+    // Handle file_delete: Since all files are in the shared folder, delete directly on the server.
     if (type === "file_delete" && target === "server") {
-        const ownerClient = payload.ownerClient || "";
-        if (!ownerClient) {
-            ws.send(buildMessage("error", "server", source, {
-                code: "MISSING_OWNER", message: "file_delete requires ownerClient in payload."
-            }));
-            return;
+        const result = handlers.deleteFile(payload.fileId || "");
+        if (result.deleted) {
+            updateClientFileList("server", handlers.getFileList());
+            broadcastToMobile(buildMessage("file_list", "server", "all", { files: getAggregatedFileList() }));
         }
-        if (ownerClient === "server") {
-            const result = handlers.deleteFile(payload.fileId || "");
-            if (result.deleted) {
-                clientFileLists.set("server", handlers.getFileList());
-                broadcastToMobile(buildMessage("file_list", "server", "all", { files: getAggregatedFileList() }));
-            }
-            ws.send(buildMessage("file_delete_complete", "server", source, result));
-            return;
-        }
-        const forward = buildMessage("file_delete", "server", ownerClient, { ...payload, requestedBy: source });
-        const delivered = sendTo(ownerClient, forward);
-        if (!delivered) {
-            ws.send(buildMessage("error", "server", source, {
-                code: "OWNER_NOT_CONNECTED",
-                message: `File owner '${ownerClient}' is not connected.`,
-            }));
-        }
+        ws.send(buildMessage("file_delete_complete", "server", source, result));
+        return;
+    }
+
+    // Trigger a file list reload on the server
+    if (type === "server_reload_files" && target === "server") {
+        updateClientFileList("server", handlers.getFileList());
+        const aggMsg = buildMessage("file_list", "server", "all", {
+            files: getAggregatedFileList(),
+        });
+        broadcastToMobile(aggMsg);
         return;
     }
 
@@ -477,6 +458,8 @@ function getTailscaleIp(callback) {
 }
 
 function startServer() {
+    // Pre-populate server's own file list from disk at startup
+    clientFileLists.set("server", handlers.getFileList());
     const wss = new WebSocketServer({ host: config.HOST, port: config.PORT });
 
     wss.on("listening", () => {

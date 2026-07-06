@@ -9,7 +9,7 @@ module.exports = {
     CLIENT_NAME: "Node.js Runtime",
 
     // Capabilities this client advertises
-    CAPABILITIES: ["run_script", "gather_research", "file_transfers"],
+    CAPABILITIES: ["run_script", "gather_research"],
 
     // Directory containing scripts that can be executed via "run_script"
     SCRIPTS_DIR: "./scripts",

@@ -8,7 +8,7 @@ PORT = 9734
 CLIENT_NAME = "Python Runtime"
 
 # Capabilities this client advertises
-CAPABILITIES = ["run_script", "edit_story", "file_transfers"]
+CAPABILITIES = ["run_script", "edit_story"]
 
 # Directory containing scripts that can be executed via "run_script"
 SCRIPTS_DIR = "./scripts"
